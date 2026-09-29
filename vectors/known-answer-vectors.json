@@ -1,0 +1,175 @@
+{
+  "algorithm": "Asterion-256",
+  "version": "0.1.0-experimental",
+  "encoding": {
+    "messageHex": "raw message bytes",
+    "domainUtf8": "UTF-8 domain string",
+    "digestHex": "32 digest bytes serialized as lowercase hexadecimal"
+  },
+  "patternVectors": {
+    "description": "For names pattern-N, byte[i] = (131*i + 17) mod 256.",
+    "lengths": [
+      0,
+      1,
+      2,
+      15,
+      16,
+      31,
+      32,
+      33,
+      63,
+      64,
+      65,
+      127,
+      128,
+      129,
+      1024
+    ]
+  },
+  "vectors": [
+    {
+      "name": "pattern-0",
+      "messageHex": "",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "fdecec72bc291fdd8dbb1a18be9ea4412aea6b8fe4235220cd9bafe49fc8d103"
+    },
+    {
+      "name": "pattern-1",
+      "messageHex": "11",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "be7ebef86795d3d369c3b1e6cb7900dc4009e6858727276cf93994d1084f9e65"
+    },
+    {
+      "name": "pattern-2",
+      "messageHex": "1194",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "c942b53704f2ccfedccfc5df5cdd21bef028d5307bbe3da675b4d10a7630e26d"
+    },
+    {
+      "name": "pattern-15",
+      "messageHex": "1194179a1da023a629ac2fb235b83b",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "227605bcfa444ce6643a445baa01d2d01b955f659d773ccb09e0b7b45791cbd1"
+    },
+    {
+      "name": "pattern-16",
+      "messageHex": "1194179a1da023a629ac2fb235b83bbe",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "44363944f45bf14e48d5bffcdf71dbc4150dfac605666606f811eef12c13c257"
+    },
+    {
+      "name": "pattern-31",
+      "messageHex": "1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86b",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "bf1b1d922b7def07cd63938b7cd66fcbbeee62de04c66a6f2315985d77552df7"
+    },
+    {
+      "name": "pattern-32",
+      "messageHex": "1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "e96aba5e15e8fe6fa80b3abbf65bb220dd8d017e65bea087e0c00a8691782d34"
+    },
+    {
+      "name": "pattern-33",
+      "messageHex": "1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee71",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "12fc61640e4893e3a837b4d01b6e57ae74a1dd07cf45f358c20d1d907771a747"
+    },
+    {
+      "name": "pattern-63",
+      "messageHex": "1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee71f477fa7d008306890c8f1295189b1ea124a72aad30b336b93cbf42c548cb",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "a5fcdf302cd96f904ecb5aa28cbbfe590ee87edbd849b2c33864d014e5a28bfc"
+    },
+    {
+      "name": "pattern-64",
+      "messageHex": "1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee71f477fa7d008306890c8f1295189b1ea124a72aad30b336b93cbf42c548cb4e",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "2288f46eeed2444deb73356f8b3a4caf574a4798a85de38106726db54e03d9ec"
+    },
+    {
+      "name": "pattern-65",
+      "messageHex": "1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee71f477fa7d008306890c8f1295189b1ea124a72aad30b336b93cbf42c548cb4ed1",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "7da2805fe178260107969ad0265069ad87a749ccd4b1f0b1332c7c4f2a5b4efb"
+    },
+    {
+      "name": "pattern-127",
+      "messageHex": "1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee71f477fa7d008306890c8f1295189b1ea124a72aad30b336b93cbf42c548cb4ed154d75add60e366e96cef72f578fb7e0184078a0d901396199c1fa225a82bae31b437ba3dc043c649cc4fd255d85bde61e467ea6df073f679fc7f0285088b",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "01e6fa391d20b01eb24db87a317194ee7f2b083c6b1f83ba69c0ca13c15dc40a"
+    },
+    {
+      "name": "pattern-128",
+      "messageHex": "1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee71f477fa7d008306890c8f1295189b1ea124a72aad30b336b93cbf42c548cb4ed154d75add60e366e96cef72f578fb7e0184078a0d901396199c1fa225a82bae31b437ba3dc043c649cc4fd255d85bde61e467ea6df073f679fc7f0285088b0e",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "8b906dde55c745eba53493107c5ec262519a486671df4f08c1588089ec9a3e73"
+    },
+    {
+      "name": "pattern-129",
+      "messageHex": "1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee71f477fa7d008306890c8f1295189b1ea124a72aad30b336b93cbf42c548cb4ed154d75add60e366e96cef72f578fb7e0184078a0d901396199c1fa225a82bae31b437ba3dc043c649cc4fd255d85bde61e467ea6df073f679fc7f0285088b0e91",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "2cb07769f737f87c271536ad8612c6b5af8a062fd6cdada9af28c7359ad50589"
+    },
+    {
+      "name": "pattern-1024",
+      "messageHex": "1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee71f477fa7d008306890c8f1295189b1ea124a72aad30b336b93cbf42c548cb4ed154d75add60e366e96cef72f578fb7e0184078a0d901396199c1fa225a82bae31b437ba3dc043c649cc4fd255d85bde61e467ea6df073f679fc7f0285088b0e9114971a9d20a326a92caf32b538bb3ec144c74acd50d356d95cdf62e568eb6ef174f77afd800386098c0f9215981b9e21a427aa2db033b639bc3fc245c84bce51d457da5de063e669ec6ff275f87bfe8104870a8d109316991c9f22a528ab2eb134b73abd40c346c94ccf52d558db5ee164e76aed70f376f97cff8205880b8e1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee71f477fa7d008306890c8f1295189b1ea124a72aad30b336b93cbf42c548cb4ed154d75add60e366e96cef72f578fb7e0184078a0d901396199c1fa225a82bae31b437ba3dc043c649cc4fd255d85bde61e467ea6df073f679fc7f0285088b0e9114971a9d20a326a92caf32b538bb3ec144c74acd50d356d95cdf62e568eb6ef174f77afd800386098c0f9215981b9e21a427aa2db033b639bc3fc245c84bce51d457da5de063e669ec6ff275f87bfe8104870a8d109316991c9f22a528ab2eb134b73abd40c346c94ccf52d558db5ee164e76aed70f376f97cff8205880b8e1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee71f477fa7d008306890c8f1295189b1ea124a72aad30b336b93cbf42c548cb4ed154d75add60e366e96cef72f578fb7e0184078a0d901396199c1fa225a82bae31b437ba3dc043c649cc4fd255d85bde61e467ea6df073f679fc7f0285088b0e9114971a9d20a326a92caf32b538bb3ec144c74acd50d356d95cdf62e568eb6ef174f77afd800386098c0f9215981b9e21a427aa2db033b639bc3fc245c84bce51d457da5de063e669ec6ff275f87bfe8104870a8d109316991c9f22a528ab2eb134b73abd40c346c94ccf52d558db5ee164e76aed70f376f97cff8205880b8e1194179a1da023a629ac2fb235b83bbe41c447ca4dd053d659dc5fe265e86bee71f477fa7d008306890c8f1295189b1ea124a72aad30b336b93cbf42c548cb4ed154d75add60e366e96cef72f578fb7e0184078a0d901396199c1fa225a82bae31b437ba3dc043c649cc4fd255d85bde61e467ea6df073f679fc7f0285088b0e9114971a9d20a326a92caf32b538bb3ec144c74acd50d356d95cdf62e568eb6ef174f77afd800386098c0f9215981b9e21a427aa2db033b639bc3fc245c84bce51d457da5de063e669ec6ff275f87bfe8104870a8d109316991c9f22a528ab2eb134b73abd40c346c94ccf52d558db5ee164e76aed70f376f97cff8205880b8e",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "82e767283eab8d09b03bee84d032edd4adc8e98a3b3325d968f6a3e99457c976"
+    },
+    {
+      "name": "utf8-hello",
+      "messageHex": "68656c6c6f",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "d9657b5802a1f9fccd5b063ea5a2230855daf1b8b6ef702bb36867ea3e03410e"
+    },
+    {
+      "name": "utf8-unicode",
+      "messageHex": "4173746572696f6e20e2809420ce9420e2809420f09f9880",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "83f0ca096356eb74f37520c305289fb9d2c8c4e9d6c60459943f3115e4b1aab5"
+    },
+    {
+      "name": "domain-empty",
+      "messageHex": "73616d65206d657373616765",
+      "domainUtf8": "",
+      "digestHex": "d17fe316c92be545dda41866de9fc5093e77d01db8491747f54817d5df79e3c1"
+    },
+    {
+      "name": "domain-4173746572696f6e2d323536",
+      "messageHex": "73616d65206d657373616765",
+      "domainUtf8": "Asterion-256",
+      "digestHex": "9dfac9586b26bf682fb896f32290146ed645522f90dcc3515c6f594d4a52d6aa"
+    },
+    {
+      "name": "domain-6578616d706c65",
+      "messageHex": "73616d65206d657373616765",
+      "domainUtf8": "example",
+      "digestHex": "b9779830d4de287c2251d928439bc664e731b063d923438f1244ec2c4b033f8f"
+    },
+    {
+      "name": "domain-6578616d706c6500",
+      "messageHex": "73616d65206d657373616765",
+      "domainUtf8": "example\u0000",
+      "digestHex": "598dc1043c86a5676b9d3507d21ddf4400c0b2f975d60c2946d6065c21ea5734"
+    },
+    {
+      "name": "domain-6578616d706c6532",
+      "messageHex": "73616d65206d657373616765",
+      "domainUtf8": "example2",
+      "digestHex": "784fe50c3037c19f6ea32fc606036f0e0eb0d1acc04ec27f135aad53ab29883f"
+    },
+    {
+      "name": "domain-6161616161616161616161616161616161616161616161616161616161616161",
+      "messageHex": "73616d65206d657373616765",
+      "domainUtf8": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digestHex": "fa8d7d8b00cda802e75aaca411deecef3fc6c6c444f39bc0ca5f323dcf33e199"
+    },
+    {
+      "name": "domain-616161616161616161616161616161616161616161616161616161616161616161",
+      "messageHex": "73616d65206d657373616765",
+      "domainUtf8": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digestHex": "857f76bb613584398c37bf5aa1db6cfb5987aceceee2ed011617debd509ea9e2"
+    }
+  ]
+}
