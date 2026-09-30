@@ -42,7 +42,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node tests/asterion.test.mjs && node tests/statistical_smoke.test.mjs && node tests/security_lifecycle.test.mjs",
-    "test:reference": "python reference/verify_vectors.py",
+    "test:reference": "python reference/verify_vectors.py && python reference/test_streaming.py",
     "test:analysis": "python analysis/run_suite.py --quick",
     "test:analysis:full": "python analysis/run_suite.py --full",
     "bench": "npm run build && node benchmarks/bench.mjs",

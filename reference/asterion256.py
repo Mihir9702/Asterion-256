@@ -98,81 +98,167 @@ def absorb_block(state: list[int], block: bytes, frame: int) -> None:
     permute(state)
 
 
-def _domain_state(domain: str) -> list[int]:
-    domain_bytes = domain.encode("utf-8")
-    state = IV.copy()
+class Asterion256:
+    """Asterion-256 stateful hasher supporting streaming input.
+    
+    Adheres to Python's hashlib interface conventions with update(), digest(),
+    hexdigest(), copy(), and secure zeroization.
+    """
 
-    state[6] ^= u64(len(domain_bytes) << 48)
-    state[7] ^= 0xA5A55A5AC3C33C3C
+    def __init__(self, domain: str = "Asterion-256") -> None:
+        if not isinstance(domain, str):
+            raise TypeError("Asterion256: domain must be a string")
+        self._domain = domain
+        self._state: list[int] = [0] * 8
+        self._buffer = bytearray()
+        self._total_bytes = 0
+        self._finalized = False
+        self._init_domain(domain)
 
-    offset = 0
-    while offset + RATE_BYTES <= len(domain_bytes):
-        absorb_block(
-            state,
-            domain_bytes[offset:offset + RATE_BYTES],
-            0xD1,
+    def _init_domain(self, domain: str) -> None:
+        domain_bytes = domain.encode("utf-8")
+        self._state = IV.copy()
+        self._state[6] ^= u64(len(domain_bytes) << 48)
+        self._state[7] ^= 0xA5A55A5AC3C33C3C
+
+        offset = 0
+        while offset + RATE_BYTES <= len(domain_bytes):
+            absorb_block(
+                self._state,
+                domain_bytes[offset : offset + RATE_BYTES],
+                0xD1,
+            )
+            offset += RATE_BYTES
+
+        remainder = domain_bytes[offset:]
+        final_block = bytearray(RATE_BYTES)
+        final_block[: len(remainder)] = remainder
+        final_block[len(remainder)] ^= 0x01
+        final_block[-1] ^= 0x80
+        absorb_block(self._state, bytes(final_block), 0xD0)
+
+    def update(self, message: bytes | bytearray | memoryview | str) -> Asterion256:
+        """Feed additional message bytes into the hasher."""
+        if self._finalized:
+            raise RuntimeError("Asterion256: cannot update after digest() or destroy()")
+
+        if isinstance(message, str):
+            data = message.encode("utf-8")
+        elif isinstance(message, (bytes, bytearray, memoryview)):
+            data = bytes(message)
+        else:
+            raise TypeError(
+                "Asterion256.update: input must be bytes, bytearray, memoryview, or str"
+            )
+
+        self._total_bytes += len(data)
+        self._buffer.extend(data)
+
+        # Absorb full 32-byte rate blocks
+        while len(self._buffer) >= RATE_BYTES:
+            block = bytes(self._buffer[:RATE_BYTES])
+            del self._buffer[:RATE_BYTES]
+            absorb_block(self._state, block, 0x4D)
+
+        return self
+
+    def digest(self, format: str = "bytes") -> bytes | str:
+        """Finalize and return the 32-byte digest in 'bytes' or 'hex' format."""
+        if self._finalized:
+            raise RuntimeError("Asterion256: digest() may only be called once")
+        self._finalized = True
+
+        remainder = bytes(self._buffer)
+        final_block = bytearray(RATE_BYTES)
+        final_block[: len(remainder)] = remainder
+        final_block[len(remainder)] ^= 0x1F
+        final_block[-1] ^= 0x80
+        absorb_block(self._state, bytes(final_block), 0xF1)
+
+        byte_length = u64(self._total_bytes)
+        bit_length = u64(self._total_bytes << 3)
+
+        self._state[4] ^= bit_length
+        self._state[5] ^= rotl64(byte_length, 17)
+        self._state[6] ^= 0x0100000000000101
+        self._state[7] ^= (~byte_length) & MASK64
+
+        permute(self._state)
+
+        self._state[0] ^= 0x46494E414C213235
+        self._state[3] ^= 0x3600000000000001
+
+        permute(self._state)
+
+        digest_bytes = b"".join(
+            u64(self._state[lane]).to_bytes(8, "little") for lane in range(4)
         )
-        offset += RATE_BYTES
 
-    remainder = domain_bytes[offset:]
-    final_block = bytearray(RATE_BYTES)
-    final_block[:len(remainder)] = remainder
-    final_block[len(remainder)] ^= 0x01
-    final_block[-1] ^= 0x80
-    absorb_block(state, bytes(final_block), 0xD0)
-    return state
+        # Secure state zeroization
+        self._state = [0] * 8
+        self._buffer.clear()
+        self._total_bytes = 0
+
+        if format == "bytes":
+            return digest_bytes
+        elif format == "hex":
+            return digest_bytes.hex()
+        else:
+            raise ValueError("format must be 'bytes' or 'hex'")
+
+    def hexdigest(self) -> str:
+        """Finalize and return the 64-character lowercase hex digest."""
+        res = self.digest(format="hex")
+        assert isinstance(res, str)
+        return res
+
+    def copy(self) -> Asterion256:
+        """Create an independent copy of this hasher at its current state."""
+        if self._finalized:
+            raise RuntimeError("Asterion256: cannot copy a finalized or destroyed instance")
+        clone = Asterion256.__new__(Asterion256)
+        clone._domain = self._domain
+        clone._state = self._state.copy()
+        clone._buffer = bytearray(self._buffer)
+        clone._total_bytes = self._total_bytes
+        clone._finalized = self._finalized
+        return clone
+
+    clone = copy
+
+    def reset(self, domain: str = "Asterion-256") -> Asterion256:
+        """Reset the hasher instance to its initial state."""
+        if not isinstance(domain, str):
+            raise TypeError("Asterion256.reset: domain must be a string")
+        self._domain = domain
+        self._buffer.clear()
+        self._total_bytes = 0
+        self._finalized = False
+        self._init_domain(domain)
+        return self
+
+    def destroy(self) -> None:
+        """Explicitly wipe sensitive internal state."""
+        self._state = [0] * 8
+        self._buffer.clear()
+        self._total_bytes = 0
+        self._finalized = True
 
 
 def asterion256_bytes(
-    message: bytes,
+    message: bytes | bytearray | memoryview | str,
     domain: str = "Asterion-256",
 ) -> bytes:
-    state = _domain_state(domain)
-    offset = 0
-
-    while offset + RATE_BYTES <= len(message):
-        absorb_block(
-            state,
-            message[offset:offset + RATE_BYTES],
-            0x4D,
-        )
-        offset += RATE_BYTES
-
-    remainder = message[offset:]
-    final_block = bytearray(RATE_BYTES)
-    final_block[:len(remainder)] = remainder
-    final_block[len(remainder)] ^= 0x1F
-    final_block[-1] ^= 0x80
-    absorb_block(state, bytes(final_block), 0xF1)
-
-    byte_length = u64(len(message))
-    bit_length = u64(len(message) << 3)
-
-    state[4] ^= bit_length
-    state[5] ^= rotl64(byte_length, 17)
-    state[6] ^= 0x0100000000000101
-    state[7] ^= (~byte_length) & MASK64
-
-    permute(state)
-
-    state[0] ^= 0x46494E414C213235
-    state[3] ^= 0x3600000000000001
-
-    permute(state)
-
-    return b"".join(
-        u64(state[lane]).to_bytes(8, "little")
-        for lane in range(4)
-    )
+    res = Asterion256(domain).update(message).digest("bytes")
+    assert isinstance(res, bytes)
+    return res
 
 
 def asterion256(
-    message: bytes | str,
+    message: bytes | bytearray | memoryview | str,
     domain: str = "Asterion-256",
 ) -> str:
-    if isinstance(message, str):
-        message = message.encode("utf-8")
-    return asterion256_bytes(message, domain).hex()
+    return Asterion256(domain).update(message).hexdigest()
 
 
 if __name__ == "__main__":
