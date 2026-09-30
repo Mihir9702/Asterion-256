@@ -86,6 +86,31 @@ const ROUND_CONSTANTS = [
 
 const encoder = new TextEncoder()
 
+const ROT_SHIFTS = Array.from({ length: 64 }, (_, i) => ({
+  shl: BigInt(i),
+  shr: BigInt(64 - i),
+}))
+
+const ROUND_CONSTANTS_ROTL29 = ROUND_CONSTANTS.map(
+  (rc) => ((rc << 29n) | (rc >> 35n)) & MASK_64,
+)
+
+const ROUND_S7_ADD = Array.from(
+  { length: ROUNDS },
+  (_, r) => (BigInt(r + 1) * 0x9e37_79b9n) & MASK_64,
+)
+
+const ROUND_LANE_ROTS = Array.from({ length: ROUNDS }, (_, r) => ({
+  r1: 1 + ((r * 7) % 63),
+  r3: 1 + ((r * 11) % 63),
+  r5: 1 + ((r * 17) % 63),
+  r7: 1 + ((r * 23) % 63),
+}))
+
+const HEX_TABLE = Array.from({ length: 256 }, (_, i) =>
+  i.toString(16).padStart(2, '0'),
+)
+
 /* -------------------------------------------------------------------------- */
 /*                                64-bit core                                 */
 /* -------------------------------------------------------------------------- */
@@ -99,15 +124,16 @@ function add64(a: bigint, b: bigint): bigint {
 }
 
 function rotl64(value: bigint, bits: number): bigint {
-  const n = BigInt(bits & 63)
+  const n = bits & 63
 
-  if (n === 0n) {
+  if (n === 0) {
     return value & MASK_64
   }
 
+  const rot = ROT_SHIFTS[n]
   return (
-    (value << n) |
-    (value >> (64n - n))
+    (value << rot.shl) |
+    (value >> rot.shr)
   ) & MASK_64
 }
 
@@ -119,6 +145,14 @@ function readU64LE(
   bytes: Uint8Array,
   offset: number,
 ): bigint {
+  if (offset + 8 <= bytes.length) {
+    return new DataView(
+      bytes.buffer,
+      bytes.byteOffset + offset,
+      8,
+    ).getBigUint64(0, true)
+  }
+
   let value = 0n
 
   for (let i = 0; i < 8; i++) {
@@ -133,6 +167,15 @@ function writeU64LE(
   output: Uint8Array,
   offset: number,
 ): void {
+  if (offset + 8 <= output.length) {
+    new DataView(
+      output.buffer,
+      output.byteOffset + offset,
+      8,
+    ).setBigUint64(0, value, true)
+    return
+  }
+
   let x = value & MASK_64
 
   for (let i = 0; i < 8; i++) {
@@ -144,10 +187,8 @@ function writeU64LE(
 function toHex(bytes: Uint8Array): string {
   let output = ''
 
-  for (const byte of bytes) {
-    output += byte
-      .toString(16)
-      .padStart(2, '0')
+  for (let i = 0; i < bytes.length; i++) {
+    output += HEX_TABLE[bytes[i]]
   }
 
   return output
@@ -266,23 +307,9 @@ function mix4(
  */
 function permute(state: bigint[]): void {
   for (let round = 0; round < ROUNDS; round++) {
-    const roundConstant = ROUND_CONSTANTS[round]
-
-    /* ---------------------------------------------------------------------- */
-    /*                         Symmetry destruction                           */
-    /* ---------------------------------------------------------------------- */
-
-    state[0] ^= roundConstant
-
-    state[4] ^= rotl64(
-      roundConstant,
-      29,
-    )
-
-    state[7] = add64(
-      state[7],
-      BigInt(round + 1) * 0x9e37_79b9n,
-    )
+    state[0] ^= ROUND_CONSTANTS[round]
+    state[4] ^= ROUND_CONSTANTS_ROTL29[round]
+    state[7] = add64(state[7], ROUND_S7_ADD[round])
 
     /* ---------------------------------------------------------------------- */
     /*                           Local diffusion                              */
@@ -379,25 +406,11 @@ function permute(state: bigint[]): void {
     /*                       Non-stationary lane phase                        */
     /* ---------------------------------------------------------------------- */
 
-    state[1] = rotl64(
-      state[1],
-      1 + ((round * 7) % 63),
-    )
-
-    state[3] = rotl64(
-      state[3],
-      1 + ((round * 11) % 63),
-    )
-
-    state[5] = rotl64(
-      state[5],
-      1 + ((round * 17) % 63),
-    )
-
-    state[7] = rotl64(
-      state[7],
-      1 + ((round * 23) % 63),
-    )
+    const rots = ROUND_LANE_ROTS[round]
+    state[1] = rotl64(state[1], rots.r1)
+    state[3] = rotl64(state[3], rots.r3)
+    state[5] = rotl64(state[5], rots.r5)
+    state[7] = rotl64(state[7], rots.r7)
   }
 }
 
@@ -526,6 +539,20 @@ export class Asterion256 {
       BigInt(bytes.length)
 
     let offset = 0
+
+    /*
+     * Fast path: absorb complete 32-byte blocks directly without copying
+     * into intermediate buffer when buffer is empty.
+     */
+    if (this.#bufferLength === 0) {
+      while (offset + RATE_BYTES <= bytes.length) {
+        this.#absorbBlock(
+          bytes.subarray(offset, offset + RATE_BYTES),
+          0x4dn,
+        )
+        offset += RATE_BYTES
+      }
+    }
 
     while (
       offset < bytes.length
@@ -738,16 +765,28 @@ export class Asterion256 {
      * Lanes 4–7 form the capacity half.
      */
 
-    for (
-      let lane = 0;
-      lane < RATE_BYTES / 8;
-      lane++
-    ) {
-      this.#state[lane] ^=
-        readU64LE(
-          block,
-          lane * 8,
-        )
+    if (block.byteLength >= RATE_BYTES) {
+      const view = new DataView(
+        block.buffer,
+        block.byteOffset,
+        RATE_BYTES,
+      )
+      this.#state[0] ^= view.getBigUint64(0, true)
+      this.#state[1] ^= view.getBigUint64(8, true)
+      this.#state[2] ^= view.getBigUint64(16, true)
+      this.#state[3] ^= view.getBigUint64(24, true)
+    } else {
+      for (
+        let lane = 0;
+        lane < RATE_BYTES / 8;
+        lane++
+      ) {
+        this.#state[lane] ^=
+          readU64LE(
+            block,
+            lane * 8,
+          )
+      }
     }
 
     /*

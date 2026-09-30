@@ -28,6 +28,7 @@
     "test:reference": "python reference/verify_vectors.py",
     "test:analysis": "python analysis/run_suite.py --quick",
     "test:analysis:full": "python analysis/run_suite.py --full",
+    "bench": "npm run build && node benchmarks/bench.mjs",
     "verify": "npm run typecheck && npm test && npm run test:reference && npm run test:analysis"
   },
   "devDependencies": {
