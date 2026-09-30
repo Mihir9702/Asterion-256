@@ -4,6 +4,23 @@
   "private": true,
   "description": "Experimental, unaudited 256-bit ARX sponge-style hash research construction.",
   "type": "module",
+  "main": "./dist/Asterion-256.js",
+  "module": "./dist/Asterion-256.js",
+  "types": "./dist/Asterion-256.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/Asterion-256.d.ts",
+      "import": "./dist/Asterion-256.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "SPEC.md",
+    "DESIGN.md",
+    "README.md",
+    "LICENSE"
+  ],
   "license": "Apache-2.0",
   "author": "Mihir9702",
   "repository": {
@@ -24,7 +41,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test tests/*.test.mjs",
+    "test": "npm run build && node tests/asterion.test.mjs && node tests/statistical_smoke.test.mjs && node tests/security_lifecycle.test.mjs",
     "test:reference": "python reference/verify_vectors.py",
     "test:analysis": "python analysis/run_suite.py --quick",
     "test:analysis:full": "python analysis/run_suite.py --full",

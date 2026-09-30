@@ -436,19 +436,30 @@ export class Asterion256 {
    * different purposes without treating their inputs as belonging to the
    * same namespace.
    *
-   * For example:
-   *
-   * new Asterion256('adiya:document')
-   * new Asterion256('adiya:cache')
-   * new Asterion256('adiya:fingerprint')
-   *
-   * produce distinct hash domains.
+   * @param domain UTF-8 domain separator string (or null for internal cloning).
    */
   constructor(
-    domain = 'Asterion-256',
+    domain: string | null = 'Asterion-256',
   ) {
+    if (domain === null) {
+      // Internal sentinel for cloning: bypass domain absorption
+      return
+    }
+
+    if (typeof domain !== 'string') {
+      throw new TypeError(
+        'Asterion256: domain must be a string.',
+      )
+    }
+
+    this.#initDomain(domain)
+  }
+
+  #initDomain(domain: string): void {
     const domainBytes =
       encoder.encode(domain)
+
+    this.#state = [...IV]
 
     this.#state[6] ^=
       BigInt(domainBytes.length) << 48n
@@ -478,19 +489,7 @@ export class Asterion256 {
 
     /*
      * Domain material ALWAYS receives an explicit terminating block.
-     *
-     * Even a domain whose length is exactly 32, 64, 96... bytes gets a
-     * dedicated terminator.
-     *
-     * Therefore:
-     *
-     *     domain X
-     *
-     * cannot accidentally be interpreted as:
-     *
-     *     domain X || zeroes
      */
-
     const finalDomainBlock =
       new Uint8Array(
         RATE_BYTES,
@@ -518,22 +517,91 @@ export class Asterion256 {
   }
 
   /* ------------------------------------------------------------------------ */
+  /*                             Lifecycle Methods                            */
+  /* ------------------------------------------------------------------------ */
+
+  /**
+   * Creates an independent deep clone of this hasher at its current state.
+   * Enables state snapshotting to efficiently hash branching prefixes.
+   */
+  clone(): Asterion256 {
+    if (this.#finalized) {
+      throw new Error(
+        'Asterion256: cannot clone a finalized or destroyed instance.',
+      )
+    }
+
+    const copy = new Asterion256(null)
+    copy.#state = [...this.#state]
+    copy.#buffer = new Uint8Array(this.#buffer)
+    copy.#bufferLength = this.#bufferLength
+    copy.#totalBytes = this.#totalBytes
+    copy.#finalized = this.#finalized
+    return copy
+  }
+
+  /**
+   * Resets the hasher instance back to its initial state for the specified domain.
+   */
+  reset(domain = 'Asterion-256'): this {
+    if (typeof domain !== 'string') {
+      throw new TypeError(
+        'Asterion256.reset: domain must be a string.',
+      )
+    }
+
+    this.#buffer.fill(0)
+    this.#bufferLength = 0
+    this.#totalBytes = 0n
+    this.#finalized = false
+    this.#initDomain(domain)
+    return this
+  }
+
+  /**
+   * Explicitly wipes all sensitive internal state, buffer memory, and counters.
+   * Permanently finalizes this instance so it cannot be used or inspected.
+   */
+  destroy(): void {
+    this.#state.fill(0n)
+    this.#buffer.fill(0)
+    this.#bufferLength = 0
+    this.#totalBytes = 0n
+    this.#finalized = true
+  }
+
+  /* ------------------------------------------------------------------------ */
   /*                                 Update                                   */
   /* ------------------------------------------------------------------------ */
 
   update(
-    input: string | Uint8Array,
+    input: string | Uint8Array | ArrayBufferView | ArrayBuffer,
   ): this {
     if (this.#finalized) {
       throw new Error(
-        'Asterion256: cannot update after digest().',
+        'Asterion256: cannot update after digest() or destroy().',
       )
     }
 
-    const bytes =
-      typeof input === 'string'
-        ? encoder.encode(input)
-        : input
+    let bytes: Uint8Array
+
+    if (typeof input === 'string') {
+      bytes = encoder.encode(input)
+    } else if (input instanceof Uint8Array) {
+      bytes = input
+    } else if (ArrayBuffer.isView(input)) {
+      bytes = new Uint8Array(
+        input.buffer,
+        input.byteOffset,
+        input.byteLength,
+      )
+    } else if (input instanceof ArrayBuffer) {
+      bytes = new Uint8Array(input)
+    } else {
+      throw new TypeError(
+        'Asterion256.update: input must be a string, Uint8Array, Buffer, or ArrayBuffer.',
+      )
+    }
 
     this.#totalBytes +=
       BigInt(bytes.length)
@@ -542,12 +610,22 @@ export class Asterion256 {
 
     /*
      * Fast path: absorb complete 32-byte blocks directly without copying
-     * into intermediate buffer when buffer is empty.
+     * into intermediate buffer when buffer is empty. Uses a single DataView
+     * over the input bytes to eliminate per-block object allocation.
      */
-    if (this.#bufferLength === 0) {
+    if (this.#bufferLength === 0 && bytes.length >= RATE_BYTES) {
+      const view = new DataView(
+        bytes.buffer,
+        bytes.byteOffset,
+        bytes.byteLength,
+      )
+
       while (offset + RATE_BYTES <= bytes.length) {
-        this.#absorbBlock(
-          bytes.subarray(offset, offset + RATE_BYTES),
+        this.#absorbWords(
+          view.getBigUint64(offset, true),
+          view.getBigUint64(offset + 8, true),
+          view.getBigUint64(offset + 16, true),
+          view.getBigUint64(offset + 24, true),
           0x4dn,
         )
         offset += RATE_BYTES
@@ -726,25 +804,25 @@ export class Asterion256 {
         OUTPUT_BYTES,
       )
 
-    for (
-      let lane = 0;
-      lane < OUTPUT_BYTES / 8;
-      lane++
-    ) {
-      writeU64LE(
-        this.#state[lane],
-        output,
-        lane * 8,
-      )
-    }
+    const outView = new DataView(
+      output.buffer,
+      output.byteOffset,
+      OUTPUT_BYTES,
+    )
+
+    outView.setBigUint64(0, this.#state[0], true)
+    outView.setBigUint64(8, this.#state[1], true)
+    outView.setBigUint64(16, this.#state[2], true)
+    outView.setBigUint64(24, this.#state[3], true)
 
     /* ---------------------------------------------------------------------- */
-    /*                           Best-effort cleanup                          */
+    /*                     Secure state zeroization                           */
     /* ---------------------------------------------------------------------- */
 
+    this.#state.fill(0n)
     this.#buffer.fill(0)
-
     this.#bufferLength = 0
+    this.#totalBytes = 0n
 
     return format === 'bytes'
       ? output
@@ -755,49 +833,17 @@ export class Asterion256 {
   /*                                Absorb                                    */
   /* ------------------------------------------------------------------------ */
 
-  #absorbBlock(
-    block: Uint8Array,
+  #absorbWords(
+    m0: bigint,
+    m1: bigint,
+    m2: bigint,
+    m3: bigint,
     frame: bigint,
   ): void {
-    /*
-     * Only the 256-bit rate half directly receives message data.
-     *
-     * Lanes 4–7 form the capacity half.
-     */
-
-    if (block.byteLength >= RATE_BYTES) {
-      const view = new DataView(
-        block.buffer,
-        block.byteOffset,
-        RATE_BYTES,
-      )
-      this.#state[0] ^= view.getBigUint64(0, true)
-      this.#state[1] ^= view.getBigUint64(8, true)
-      this.#state[2] ^= view.getBigUint64(16, true)
-      this.#state[3] ^= view.getBigUint64(24, true)
-    } else {
-      for (
-        let lane = 0;
-        lane < RATE_BYTES / 8;
-        lane++
-      ) {
-        this.#state[lane] ^=
-          readU64LE(
-            block,
-            lane * 8,
-          )
-      }
-    }
-
-    /*
-     * Frame injection means these are structurally distinct:
-     *
-     *   domain block
-     *   message block
-     *   final message block
-     *
-     * even if their actual byte contents happen to match.
-     */
+    this.#state[0] ^= m0
+    this.#state[1] ^= m1
+    this.#state[2] ^= m2
+    this.#state[3] ^= m3
 
     this.#state[6] ^=
       frame << 48n
@@ -808,13 +854,41 @@ export class Asterion256 {
         17,
       )
 
-    /*
-     * Every rate block is followed by a complete permutation.
-     */
-
     permute(
       this.#state,
     )
+  }
+
+  #absorbBlock(
+    block: Uint8Array,
+    frame: bigint,
+  ): void {
+    if (block.byteLength >= RATE_BYTES) {
+      const view = new DataView(
+        block.buffer,
+        block.byteOffset,
+        RATE_BYTES,
+      )
+      this.#absorbWords(
+        view.getBigUint64(0, true),
+        view.getBigUint64(8, true),
+        view.getBigUint64(16, true),
+        view.getBigUint64(24, true),
+        frame,
+      )
+    } else {
+      let m0 = 0n
+      let m1 = 0n
+      let m2 = 0n
+      let m3 = 0n
+
+      m0 = readU64LE(block, 0)
+      m1 = readU64LE(block, 8)
+      m2 = readU64LE(block, 16)
+      m3 = readU64LE(block, 24)
+
+      this.#absorbWords(m0, m1, m2, m3, frame)
+    }
   }
 }
 
@@ -823,10 +897,72 @@ export class Asterion256 {
 /* -------------------------------------------------------------------------- */
 
 export function asterion256(
-  input: string | Uint8Array,
+  input: string | Uint8Array | ArrayBufferView | ArrayBuffer,
   domain = 'Asterion-256',
 ): string {
   return new Asterion256(domain)
     .update(input)
     .digest('hex') as string
+}
+
+/* -------------------------------------------------------------------------- */
+/*                        Constant-Time Comparison                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Constant-time equality comparison for two digests (hex strings or Uint8Array bytes)
+ * to prevent timing side-channel attacks during authentication or verification.
+ */
+export function timingSafeEqual(
+  a: string | Uint8Array,
+  b: string | Uint8Array,
+): boolean {
+  if (typeof a === 'string' && typeof b === 'string') {
+    if (a.length !== b.length) {
+      return false
+    }
+    let diff = 0
+    for (let i = 0; i < a.length; i++) {
+      diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+    }
+    return diff === 0
+  }
+
+  if (a instanceof Uint8Array && b instanceof Uint8Array) {
+    if (a.length !== b.length) {
+      return false
+    }
+    let diff = 0
+    for (let i = 0; i < a.length; i++) {
+      diff |= a[i] ^ b[i]
+    }
+    return diff === 0
+  }
+
+  throw new TypeError(
+    'timingSafeEqual: arguments must both be strings or both be Uint8Arrays.',
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*                           WHATWG Stream Support                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Creates a WHATWG TransformStream for streaming hashing in Node.js 18+, browsers,
+ * Deno, and Bun. Emits a single digest (hex string or Uint8Array) upon stream completion.
+ */
+export function createAsterionTransformStream(
+  format: 'hex' | 'bytes' = 'hex',
+  domain = 'Asterion-256',
+): TransformStream<Uint8Array | string, string | Uint8Array> {
+  const hasher = new Asterion256(domain)
+  return new TransformStream({
+    transform(chunk) {
+      hasher.update(chunk)
+    },
+    flush(controller) {
+      controller.enqueue(hasher.digest(format))
+    },
+  })
 }
