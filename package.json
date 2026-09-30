@@ -26,7 +26,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test tests/*.test.mjs",
     "test:reference": "python reference/verify_vectors.py",
-    "verify": "npm run typecheck && npm test && npm run test:reference"
+    "test:analysis": "python analysis/run_suite.py --quick",
+    "test:analysis:full": "python analysis/run_suite.py --full",
+    "verify": "npm run typecheck && npm test && npm run test:reference && npm run test:analysis"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

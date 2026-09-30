@@ -57,11 +57,14 @@ npm ci
 npm run typecheck
 npm test
 python reference/verify_vectors.py
+npm run test:analysis
 ```
 
 Committed known-answer tests cover empty input and lengths around the 32-byte rate boundary, including 31/32/33, 63/64/65, 127/128/129, and a 1024-byte case. They also cover domain separation and UTF-8 input.
 
 The independent Python implementation in [reference/asterion256.py](reference/asterion256.py) is intentionally separate from the TypeScript runtime and is checked against the same vectors.
+
+The empirical cryptanalysis and statistical testing suite in [analysis/](analysis/) evaluates permutation diffusion, Strict Avalanche Criterion (SAC), statistical uniformity, Birthday collision scaling, and rotational symmetry.
 
 ## Documentation
 
@@ -69,6 +72,7 @@ The independent Python implementation in [reference/asterion256.py](reference/as
 - [DESIGN.md](DESIGN.md) — rationale, constants, limitations, and research agenda
 - [SECURITY.md](SECURITY.md) — security status and vulnerability reporting
 - [vectors/known-answer-vectors.json](vectors/known-answer-vectors.json) — interoperability vectors
+- [analysis/README.md](analysis/README.md) — cryptanalysis and statistical testing suite
 ## What the tests do — and do not — establish
 
 Current development checks verify deterministic behavior, one-shot/streaming equivalence, framing behavior, boundary lengths, lifecycle guards, and agreement between two implementations.

@@ -59,8 +59,11 @@ def mix4(
     state[b] = rotl64(state[b] ^ state[c], r3)
 
 
-def permute(state: list[int]) -> None:
-    for rnd, rc in enumerate(ROUND_CONSTANTS):
+def permute(state: list[int], rounds: int = ROUNDS) -> None:
+    if rounds < 0 or rounds > len(ROUND_CONSTANTS):
+        raise ValueError(f"rounds must be between 0 and {len(ROUND_CONSTANTS)}")
+    for rnd in range(rounds):
+        rc = ROUND_CONSTANTS[rnd]
         state[0] ^= rc
         state[4] ^= rotl64(rc, 29)
         state[7] = u64(state[7] + (rnd + 1) * 0x9E3779B9)

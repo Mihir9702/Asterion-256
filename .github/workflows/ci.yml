@@ -37,3 +37,6 @@ jobs:
 
       - name: Verify Python reference vectors
         run: python reference/verify_vectors.py
+
+      - name: Run cryptanalysis & statistical smoke checks
+        run: npm run test:analysis
