@@ -28,7 +28,14 @@ if str(ROOT / "analysis") not in sys.path:
     sys.path.insert(0, str(ROOT / "analysis"))
 
 from asterion256 import asterion256_bytes
-from stats_utils import bytes_to_bits, chi2_p_value, format_table, monobit_test
+from stats_utils import (
+    bytes_to_bits,
+    chi2_p_value,
+    format_table,
+    longest_run_ones_test,
+    monobit_test,
+    runs_test,
+)
 
 
 def evaluate_dataset(
@@ -41,6 +48,7 @@ def evaluate_dataset(
     byte_counts = [0] * 256
     total_ones = 0
     total_bits = num_samples * 256
+    sample_bits: list[int] = []
 
     t0 = time.perf_counter()
 
@@ -54,6 +62,9 @@ def evaluate_dataset(
 
         # Bit counts
         bits = bytes_to_bits(digest)
+        if len(sample_bits) < 50000:
+            sample_bits.extend(bits)
+
         for bit_idx, bit_val in enumerate(bits):
             if bit_val:
                 bit_counts[bit_idx] += 1
@@ -64,7 +75,11 @@ def evaluate_dataset(
     # 1. Monobit test
     one_ratio, monobit_p, monobit_pass = monobit_test(total_ones, total_bits)
 
-    # 2. Per-bit bias test (Z-scores)
+    # 2. NIST SP 800-22 Runs & Longest Run tests
+    _, runs_p, runs_pass = runs_test(sample_bits)
+    _, lrun_p, lrun_pass = longest_run_ones_test(sample_bits)
+
+    # 3. Per-bit bias test (Z-scores)
     max_z = 0.0
     biased_bits: list[int] = []
     # Bonferroni threshold for 256 tests at alpha = 0.001 -> p = 0.001 / 256 = 3.9e-6 -> |Z| >= 4.61
@@ -76,13 +91,19 @@ def evaluate_dataset(
         if z > z_threshold:
             biased_bits.append(bit_idx)
 
-    # 3. Byte-level Chi-square test
+    # 4. Byte-level Chi-square test
     total_bytes = num_samples * 32
     expected_byte_count = total_bytes / 256.0
     chi2_bytes = sum(((c - expected_byte_count) ** 2) / expected_byte_count for c in byte_counts)
     byte_chi2_p = chi2_p_value(chi2_bytes, 255)
 
-    passed = bool(monobit_pass and len(biased_bits) == 0 and byte_chi2_p >= 0.001)
+    passed = bool(
+        monobit_pass
+        and runs_pass
+        and lrun_pass
+        and len(biased_bits) == 0
+        and byte_chi2_p >= 0.001
+    )
 
     return {
         "dataset": name,
@@ -91,6 +112,10 @@ def evaluate_dataset(
         "one_ratio": one_ratio,
         "monobit_p": monobit_p,
         "monobit_pass": monobit_pass,
+        "runs_p": runs_p,
+        "runs_pass": runs_pass,
+        "lrun_p": lrun_p,
+        "lrun_pass": lrun_pass,
         "max_bit_z": max_z,
         "biased_bit_count": len(biased_bits),
         "byte_chi2": chi2_bytes,
@@ -141,6 +166,7 @@ def run_uniformity_tests(quick: bool = False) -> tuple[list[dict[str, Any]], boo
     # Summary table
     headers = [
         "Dataset", "Samples", "One Ratio", "Monobit p-val",
+        "Runs p-val", "LongRun p-val",
         "Max Bit |Z|", "Biased Bits", "Byte Chi2 p-val", "Status",
     ]
     rows = []
@@ -150,6 +176,8 @@ def run_uniformity_tests(quick: bool = False) -> tuple[list[dict[str, Any]], boo
             str(r["samples"]),
             f"{r['one_ratio']:.4f}",
             f"{r['monobit_p']:.4f}",
+            f"{r['runs_p']:.4f}",
+            f"{r['lrun_p']:.4f}",
             f"{r['max_bit_z']:.2f}",
             str(r["biased_bit_count"]),
             f"{r['byte_chi2_p']:.4f}",

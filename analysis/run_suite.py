@@ -23,10 +23,12 @@ if str(ROOT / "reference") not in sys.path:
 if str(ROOT / "analysis") not in sys.path:
     sys.path.insert(0, str(ROOT / "analysis"))
 
+from algebraic_degree import print_report as print_algebraic_report, run_algebraic_degree_analysis
 from avalanche import run_avalanche_tests
 from collisions import run_collision_tests
 from diffusion import run_diffusion_tests
 from rotational import run_rotational_tests
+from smt_differential import print_report as print_smt_report, run_smt_differential_suite
 from stats_utils import format_table
 from uniformity import run_uniformity_tests
 
@@ -163,6 +165,37 @@ def run_full_suite(
         if not passed:
             all_passed = False
 
+    # 6. SMT Differential Cryptanalysis
+    if selected_module in (None, "smt"):
+        res_smt = run_smt_differential_suite(quick=quick)
+        full_report["modules"]["smt_differential"] = res_smt
+        print_smt_report(res_smt)
+        scorecard.append((
+            "Differential Security Margin",
+            "Margin >= 6 rounds (Weight >= 256)",
+            ">= 6 rounds",
+            f"{res_smt['security_margin_rounds']} rounds",
+            "PASS" if res_smt["passed"] else "FAIL",
+        ))
+        if not res_smt["passed"]:
+            all_passed = False
+
+    # 7. Algebraic Degree Growth
+    if selected_module in (None, "algebraic"):
+        res_alg = run_algebraic_degree_analysis(max_rounds=14)
+        full_report["modules"]["algebraic_degree"] = res_alg
+        print_algebraic_report(res_alg)
+        sat_round = res_alg["saturation_round"] or 14
+        scorecard.append((
+            "Algebraic Degree Saturation",
+            "Degree 511 reached in <= 2 rounds",
+            "<= Round 2",
+            f"Round {sat_round}",
+            "PASS" if res_alg["passed"] else "FAIL",
+        ))
+        if not res_alg["passed"]:
+            all_passed = False
+
     total_time = time.perf_counter() - start_time
     full_report["overall_passed"] = all_passed
     full_report["total_elapsed_sec"] = total_time
@@ -201,7 +234,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--test",
-        choices=["diffusion", "avalanche", "uniformity", "collisions", "rotational"],
+        choices=["diffusion", "avalanche", "uniformity", "collisions", "rotational", "smt", "algebraic"],
         default=None,
         help="Run only a specific analysis module",
     )

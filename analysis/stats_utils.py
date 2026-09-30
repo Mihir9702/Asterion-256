@@ -66,6 +66,84 @@ def monobit_test(ones: int, total_bits: int) -> tuple[float, float, bool]:
     return ratio, p_val, passed
 
 
+def runs_test(bits: Sequence[int]) -> tuple[float, float, bool]:
+    """NIST SP 800-22 Runs Test.
+
+    Tests whether the number of runs of consecutive zeros and ones is as
+    expected for a random sequence.
+
+    Returns:
+        (observed_runs, p_value, passed)
+    """
+    n = len(bits)
+    if n < 100:
+        return 0.0, 0.0, False
+
+    ones = sum(bits)
+    pi = ones / n
+
+    if abs(pi - 0.5) >= (2.0 / math.sqrt(n)):
+        return 0.0, 0.0, False
+
+    v_obs = 1 + sum(1 for i in range(n - 1) if bits[i] != bits[i + 1])
+    e_v = 2.0 * n * pi * (1.0 - pi)
+    den = 2.0 * math.sqrt(2.0 * n) * pi * (1.0 - pi)
+
+    if den == 0.0:
+        return float(v_obs), 0.0, False
+
+    p_val = float(math.erfc(abs(v_obs - e_v) / den))
+    passed = p_val >= 0.01
+    return float(v_obs), p_val, passed
+
+
+def longest_run_ones_test(bits: Sequence[int]) -> tuple[float, float, bool]:
+    """NIST SP 800-22 Longest Run of Ones in a Block Test (M=128 bits).
+
+    Returns:
+        (chi2, p_value, passed)
+    """
+    M = 128
+    K = 5
+    pi = [0.1174, 0.2430, 0.2493, 0.1752, 0.1027, 0.1124]
+
+    n = len(bits)
+    N = n // M
+    if N < 49:
+        return 0.0, 1.0, True
+
+    freq = [0] * 6
+    for block_idx in range(N):
+        block = bits[block_idx * M : (block_idx + 1) * M]
+        max_run = 0
+        current_run = 0
+        for bit in block:
+            if bit == 1:
+                current_run += 1
+                if current_run > max_run:
+                    max_run = current_run
+            else:
+                current_run = 0
+
+        if max_run <= 4:
+            freq[0] += 1
+        elif max_run == 5:
+            freq[1] += 1
+        elif max_run == 6:
+            freq[2] += 1
+        elif max_run == 7:
+            freq[3] += 1
+        elif max_run == 8:
+            freq[4] += 1
+        else:
+            freq[5] += 1
+
+    chi2 = sum(((freq[i] - N * pi[i]) ** 2) / (N * pi[i]) for i in range(6))
+    p_val = chi2_p_value(chi2, K)
+    passed = p_val >= 0.01
+    return float(chi2), p_val, passed
+
+
 def bytes_to_bits(data: bytes | bytearray) -> list[int]:
     """Convert bytes to a list of integer bit values 0 or 1 (little-endian per byte)."""
     bits: list[int] = []
