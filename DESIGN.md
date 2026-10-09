@@ -142,18 +142,28 @@ The digest is lanes 0–3 serialized little-endian, for 256 output bits.
 
 No extendable-output mode is defined by v0.1.0.
 
-## Current empirical checks
+## Current empirical checks and methodology limits
 
-The empirical cryptanalysis and statistical testing suite in [analysis/](analysis/) (see [analysis/README.md](analysis/README.md)) evaluates the construction across several key criteria:
+The research scripts have reported healthy diffusion, SAC, apparent uniformity,
+truncated birthday scaling and rotational Hamming behavior. These are sampled
+sanity observations and do not imply cryptographic security.
 
-- **Permutation bit-dependency & diffusion:** Single-bit input differences achieve 99.9% state dependency coverage by Round 2, with the mean flipped state bits stabilizing at $256.16 \pm 0.2$ out of 512 bits ($50.0\%$).
-- **Strict Avalanche Criterion (SAC):** Evaluated across 1-byte, 32-byte, and 33-byte messages. The mean bit-flip probability is $0.5004$ (ideal: $0.5000$), with empirical Mean Absolute Deviation (MAD) closely matching the theoretical finite-sample expectation ($E[\text{MAD}] \approx 0.3989/\sqrt{N}$) and passing Chi-Square tests ($p > 0.05$).
-- **Bit Independence Criterion (BIC):** Output bit flip pairs exhibit near-zero correlation (mean $|r| \approx 0.07$ on finite samples, consistent with independent Bernoulli trials).
-- **Statistical uniformity & bit balance:** NIST SP 800-22 frequency (monobit) test passed across sequential counter, random, low-entropy, and sparse 2-bit vectors; max per-bit position $|Z| \le 3.26 < 4.0$; byte-level Chi-Square goodness-of-fit test passed ($p > 0.05$).
-- **Collision scaling & Birthday bound:** Truncated collision search ($k = 16, 20$ bits) matches theoretical Birthday Paradox expectations ($E[N] \approx \sqrt{\frac{\pi}{2} 2^k}$) with empirical/theoretical ratios between $0.86$ and $1.00$. Zero full 256-bit collisions in 15,000+ unique inputs.
-- **Rotational symmetry breaking:** Evaluated across rotation offsets $k \in \{1, 2, 7, 8, 13, 16, 23, 31, 32\}$. The mean rotational difference $\Delta_{rot}(x, k)$ immediately reaches $256.7 / 512$ bits ($50.1\%$) in Round 1, confirming that asymmetric round constants and non-stationary rotations neutralize rotational slide.
+The earlier differential-analysis module assigned a fixed four bits of weight
+to every active 64-bit modular addition. This was false: the most-significant
+input XOR-bit difference has probability one and zero weight. The invented
+full-round margin and UNBREAKABLE assessment have been withdrawn.
 
-These empirical checks confirm healthy diffusion and absence of low-round symmetries. They cannot establish security against algebraic, differential, or higher-order attacks.
+The algebraic script propagated max-plus degree UPPER BOUNDS but presented
+bound saturation as actual degree. XOR cancellation invalidates that inference.
+The updated script explicitly reports bounds, not actual coordinate degrees.
+
+Statistical dependencies invalidate automatic treatment of summed SAC-cell
+chi-square values as independent-sample significance tests. Thresholds remain
+descriptive only.
+
+A seeded study in research/reduced-round-results.json samples single-bit state
+differences for each 1–14 round count and enumerates a 16-bit reduced-word
+surrogate. Neither yields a bound on the actual 64-bit, 14-round construction.
 
 ## Open cryptanalytic questions
 
@@ -183,6 +193,8 @@ The appropriate public claim for v0.1.0 is:
 > Asterion-256 is an experimental, unaudited 256-bit hash research construction. Its 256-bit capacity gives a generic sponge-security ceiling of roughly 128 bits under idealized assumptions, but no comparable security level has been established for its custom permutation.
 
 Anything stronger would overstate the evidence currently available.
+Research PASS messages must never become security certificates. External
+cryptanalysis is outstanding.
 
 ## Full construction dataflow
 

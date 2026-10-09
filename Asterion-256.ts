@@ -431,6 +431,10 @@ export class Asterion256 {
 
   #finalized = false
 
+  #destroyed = false
+
+  #pendingHighSurrogate = ''
+
   /**
    * Domain separation allows the same primitive to be used for logically
    * different purposes without treating their inputs as belonging to the
@@ -439,13 +443,8 @@ export class Asterion256 {
    * @param domain UTF-8 domain separator string (or null for internal cloning).
    */
   constructor(
-    domain: string | null = 'Asterion-256',
+    domain: string = 'Asterion-256',
   ) {
-    if (domain === null) {
-      // Internal sentinel for cloning: bypass domain absorption
-      return
-    }
-
     if (typeof domain !== 'string') {
       throw new TypeError(
         'Asterion256: domain must be a string.',
@@ -462,7 +461,7 @@ export class Asterion256 {
     this.#state = [...IV]
 
     this.#state[6] ^=
-      BigInt(domainBytes.length) << 48n
+      u64(BigInt(domainBytes.length) << 48n)
 
     this.#state[7] ^=
       0xa5a5_5a5a_c3c3_3c3cn
@@ -521,7 +520,7 @@ export class Asterion256 {
   /* ------------------------------------------------------------------------ */
 
   /**
-   * Creates an independent deep clone of this hasher at its current state.
+   * Creates an independent clone of this hasher at its current state.
    * Enables state snapshotting to efficiently hash branching prefixes.
    */
   clone(): Asterion256 {
@@ -531,11 +530,12 @@ export class Asterion256 {
       )
     }
 
-    const copy = new Asterion256(null)
+    const copy = new Asterion256()
     copy.#state = [...this.#state]
     copy.#buffer = new Uint8Array(this.#buffer)
     copy.#bufferLength = this.#bufferLength
     copy.#totalBytes = this.#totalBytes
+    copy.#pendingHighSurrogate = this.#pendingHighSurrogate
     copy.#finalized = this.#finalized
     return copy
   }
@@ -544,29 +544,37 @@ export class Asterion256 {
    * Resets the hasher instance back to its initial state for the specified domain.
    */
   reset(domain = 'Asterion-256'): this {
+    if (this.#destroyed) {
+      throw new Error('Asterion256: cannot reset a destroyed instance.')
+    }
     if (typeof domain !== 'string') {
       throw new TypeError(
         'Asterion256.reset: domain must be a string.',
       )
     }
 
+    this.#state.fill(0n)
     this.#buffer.fill(0)
     this.#bufferLength = 0
     this.#totalBytes = 0n
+    this.#pendingHighSurrogate = ''
     this.#finalized = false
     this.#initDomain(domain)
     return this
   }
 
   /**
-   * Explicitly wipes all sensitive internal state, buffer memory, and counters.
-   * Permanently finalizes this instance so it cannot be used or inspected.
+   * Best-effort overwrites of reachable internal references and byte buffers.
+   * JavaScript BigInts and garbage-collected copies cannot be securely erased.
+   * Permanently disables this instance (reset() cannot revive it).
    */
   destroy(): void {
     this.#state.fill(0n)
     this.#buffer.fill(0)
     this.#bufferLength = 0
     this.#totalBytes = 0n
+    this.#pendingHighSurrogate = ''
+    this.#destroyed = true
     this.#finalized = true
   }
 
@@ -586,7 +594,18 @@ export class Asterion256 {
     let bytes: Uint8Array
 
     if (typeof input === 'string') {
-      bytes = encoder.encode(input)
+      // Buffer a terminal high surrogate to make split UTF-16 pairs match
+      // one-shot TextEncoder behavior across consecutive string updates.
+      let text = this.#pendingHighSurrogate + input
+      this.#pendingHighSurrogate = ''
+      if (text.length > 0) {
+        const last = text.charCodeAt(text.length - 1)
+        if (last >= 0xd800 && last <= 0xdbff) {
+          this.#pendingHighSurrogate = text.slice(-1)
+          text = text.slice(0, -1)
+        }
+      }
+      bytes = encoder.encode(text)
     } else if (input instanceof Uint8Array) {
       bytes = input
     } else if (ArrayBuffer.isView(input)) {
@@ -601,6 +620,11 @@ export class Asterion256 {
       throw new TypeError(
         'Asterion256.update: input must be a string, Uint8Array, Buffer, or ArrayBuffer.',
       )
+    }
+
+    if (typeof input !== 'string' && this.#pendingHighSurrogate) {
+      this.#pendingHighSurrogate = ''
+      this.update('\ufffd')
     }
 
     this.#totalBytes +=
@@ -694,6 +718,15 @@ export class Asterion256 {
       )
     }
 
+    if (format !== 'hex' && format !== 'bytes') {
+      throw new TypeError('Asterion256: format must be hex or bytes.')
+    }
+
+    if (this.#pendingHighSurrogate) {
+      this.#pendingHighSurrogate = ''
+      this.update('\ufffd')
+    }
+
     this.#finalized = true
 
     /* ---------------------------------------------------------------------- */
@@ -730,6 +763,7 @@ export class Asterion256 {
       finalBlock,
       0xf1n,
     )
+    finalBlock.fill(0)
 
     /* ---------------------------------------------------------------------- */
     /*                         Message-length binding                         */
@@ -816,13 +850,14 @@ export class Asterion256 {
     outView.setBigUint64(24, this.#state[3], true)
 
     /* ---------------------------------------------------------------------- */
-    /*                     Secure state zeroization                           */
+    /*                     Best-effort state overwrite                       */
     /* ---------------------------------------------------------------------- */
 
     this.#state.fill(0n)
     this.#buffer.fill(0)
     this.#bufferLength = 0
     this.#totalBytes = 0n
+    this.#pendingHighSurrogate = ''
 
     return format === 'bytes'
       ? output
@@ -906,12 +941,13 @@ export function asterion256(
 }
 
 /* -------------------------------------------------------------------------- */
-/*                        Constant-Time Comparison                            */
+/*                  Best-Effort Digest Equality Comparison                    */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Constant-time equality comparison for two digests (hex strings or Uint8Array bytes)
- * to prevent timing side-channel attacks during authentication or verification.
+ * Best-effort full-length equality comparison for same-length values.
+ * JavaScript runtimes provide NO guaranteed constant-time semantics here.
+ * Do not use this utility as an authentication security boundary.
  */
 export function timingSafeEqual(
   a: string | Uint8Array,

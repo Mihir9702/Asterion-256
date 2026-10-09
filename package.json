@@ -1,6 +1,6 @@
 {
   "name": "asterion-256",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Experimental, unaudited 256-bit ARX sponge-style hash research construction.",
   "type": "module",
@@ -46,7 +46,10 @@
     "test:analysis": "python analysis/run_suite.py --quick",
     "test:analysis:full": "python analysis/run_suite.py --full",
     "bench": "npm run build && node benchmarks/bench.mjs",
-    "verify": "npm run typecheck && npm test && npm run test:reference && npm run test:analysis"
+    "verify": "npm run typecheck && npm test && npm run test:reference && npm run test:interop && npm run test:models && npm run test:analysis",
+    "test:interop": "python -m unittest discover -s tests -p test_interoperability.py -v",
+    "test:models": "python -m unittest discover -s analysis -p test_models.py -v",
+    "test:research": "python analysis/reduced_round_research.py --quick"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

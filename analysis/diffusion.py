@@ -93,7 +93,7 @@ def analyze_single_bit_diffusion(
 
     # Aggregate stats per round
     summary = []
-    full_diffusion_round: int | None = None
+    empirical_coverage_threshold_round: int | None = None
 
     for r in range(1, ROUNDS + 1):
         hws = round_hw[r]
@@ -111,8 +111,8 @@ def analyze_single_bit_diffusion(
         dep_cells = sum(sum(row) for row in dependency[r])
         dep_percent = (dep_cells / (512 * 512)) * 100.0
 
-        if full_diffusion_round is None and dep_percent >= 99.5 and abs(mean_hw - 256.0) < 5.0:
-            full_diffusion_round = r
+        if empirical_coverage_threshold_round is None and dep_percent >= 99.5 and abs(mean_hw - 256.0) < 5.0:
+            empirical_coverage_threshold_round = r
 
         summary.append({
             "round": r,
@@ -129,7 +129,7 @@ def analyze_single_bit_diffusion(
         "num_base_states": num_base_states,
         "total_probes_per_round": num_base_states * 512,
         "elapsed_sec": elapsed,
-        "full_diffusion_round": full_diffusion_round,
+        "empirical_coverage_threshold_round": empirical_coverage_threshold_round,
         "rounds": summary,
     }
 
@@ -206,7 +206,7 @@ def run_diffusion_tests(quick: bool = False) -> tuple[dict[str, Any], bool]:
         ])
 
     print("\n" + format_table(headers, rows))
-    print(f"\n- Full state diffusion achieved at round: {results['full_diffusion_round']}")
+    print(f"\n- Empirical 99.5% dependency-coverage threshold at round: {results['empirical_coverage_threshold_round']}")
     print(f"- Round 2 bit dependency coverage: {r2_dep:.2f}%")
     print(f"- Round 14 mean flipped bits: {r14_mean:.2f} / 512 (ideal: 256.00)")
     print(f"- Evaluation time: {results['elapsed_sec']:.2f}s")

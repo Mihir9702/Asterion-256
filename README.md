@@ -10,7 +10,7 @@ Asterion-256 produces a **256-bit digest**. That is not a claim of 256-bit secur
 
 ## Status
 
-- Version: **0.1.0-experimental**
+- Implementation package: **0.1.1-experimental** (hash specification remains **v0.1.0**)
 - Security review: **none**
 - Cryptanalytic review: **none**
 - Production use: **not recommended**
@@ -54,17 +54,16 @@ d9657b5802a1f9fccd5b063ea5a2230855daf1b8b6ef702bb36867ea3e03410e
 
 ```bash
 npm ci
-npm run typecheck
-npm test
-python reference/verify_vectors.py
-npm run test:analysis
+npm run verify
+# Optional: reproducible, explicitly non-security research
+npm run test:research
 ```
 
 Committed known-answer tests cover empty input and lengths around the 32-byte rate boundary, including 31/32/33, 63/64/65, 127/128/129, and a 1024-byte case. They also cover domain separation and UTF-8 input.
 
 The independent Python implementation in [reference/asterion256.py](reference/asterion256.py) is intentionally separate from the TypeScript runtime and is checked against the same vectors.
 
-The empirical cryptanalysis and statistical testing suite in [analysis/](analysis/) evaluates permutation diffusion, Strict Avalanche Criterion (SAC), statistical uniformity, Birthday collision scaling, and rotational symmetry.
+The exploratory [analysis/](analysis/) scripts collect diffusion, avalanche, uniformity and reduced-round observations. A previous differential-margin computation and algebraic-degree claims were invalid and replaced with limited research models. No full-round security conclusion follows.
 
 ## Documentation
 
@@ -75,11 +74,11 @@ The empirical cryptanalysis and statistical testing suite in [analysis/](analysi
 - [analysis/README.md](analysis/README.md) — cryptanalysis and statistical testing suite
 ## What the tests do — and do not — establish
 
-Current development checks verify deterministic behavior, one-shot/streaming equivalence, framing behavior, boundary lengths, lifecycle guards, and agreement between two implementations.
+Development checks cover deterministic behavior, one-shot/streaming equivalence, framing and block boundaries, lifecycle guards, cross-language random tests and long domains. They establish conformity of tested inputs only, not cryptographic strength.
 
 Development-time statistical smoke tests have also shown near-50% output-bit balance and avalanche behavior on sampled inputs. **Those observations are not cryptanalysis and are not evidence of cryptographic security.**
 
-Important open work includes differential, rotational, linear/differential-linear, algebraic, rebound-style, and reduced-round analysis of the permutation.
+Open work includes full-word differential, rotational, linear/differential-linear, algebraic, rebound-style and reduced-round cryptanalysis, followed by independent review. See [research/REVIEW_REQUEST.md](research/REVIEW_REQUEST.md) and [research/PHASE_STATUS.md](research/PHASE_STATUS.md).
 
 ## License
 

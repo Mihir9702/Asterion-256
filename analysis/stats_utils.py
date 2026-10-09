@@ -16,33 +16,43 @@ def chi2_p_value(chi2: float, df: int) -> float:
     if df <= 0:
         return 0.0
 
-    # For df >= 30, Wilson-Hilferty transformation is exceptionally accurate
-    if df >= 30:
-        term = (chi2 / df) ** (1.0 / 3.0)
-        mean = 1.0 - 2.0 / (9.0 * df)
-        variance = 2.0 / (9.0 * df)
-        z = (term - mean) / math.sqrt(variance)
-        return float(0.5 * math.erfc(z / math.sqrt(2.0)))
-
-    # For smaller df, regularized incomplete gamma series expansion
+    # Regularized incomplete gamma Q(a,x), with stable branches:
+    # P-series for x < a+1, Q-continued fraction otherwise.
     a = df / 2.0
     x = chi2 / 2.0
-
-    term = 1.0 / a
-    s = term
-    for n in range(1, 150):
-        term *= x / (a + n)
-        s += term
-        if term < s * 1e-13:
-            break
-
-    try:
-        log_p = a * math.log(x) - x - math.lgamma(a)
-        p = math.exp(log_p) * s
-    except (ValueError, OverflowError):
-        return 0.0
-
-    return float(max(0.0, min(1.0, 1.0 - p)))
+    log_factor = a * math.log(x) - x - math.lgamma(a)
+    eps = 1e-13
+    tiny = 1e-300
+    if x < a + 1.0:
+        acc = 1.0 / a
+        term = acc
+        for n in range(1, 10000):
+            term *= x / (a + n)
+            acc += term
+            if abs(term) <= abs(acc) * eps:
+                break
+        q = 1.0 - math.exp(log_factor) * acc
+    else:
+        b = x + 1.0 - a
+        c = 1.0 / tiny
+        d = 1.0 / (b if abs(b) >= tiny else tiny)
+        h = d
+        for i in range(1, 10000):
+            an = -i * (i - a)
+            b += 2.0
+            d = an * d + b
+            if abs(d) < tiny:
+                d = tiny
+            c = b + an / c
+            if abs(c) < tiny:
+                c = tiny
+            d = 1.0 / d
+            delta = d * c
+            h *= delta
+            if abs(delta - 1.0) <= eps:
+                break
+        q = math.exp(log_factor) * h
+    return max(0.0, min(1.0, float(q)))
 
 
 def normal_p_value(z: float) -> float:
@@ -110,7 +120,7 @@ def longest_run_ones_test(bits: Sequence[int]) -> tuple[float, float, bool]:
     n = len(bits)
     N = n // M
     if N < 49:
-        return 0.0, 1.0, True
+        return 0.0, 0.0, False  # Insufficient sample, not a PASS
 
     freq = [0] * 6
     for block_idx in range(N):
@@ -202,10 +212,11 @@ def sac_metrics(
     expected_mad = 0.39894228 / math.sqrt(samples)
     p_val = chi2_p_value(chi2_total, total_cells)
 
-    # Pass condition: p-value not rejected at alpha = 0.001 and mean within 3 sigma of 0.5
-    sigma_mean = 0.5 / math.sqrt(total_cells * samples)
-    mean_ok = abs(mean_p - 0.5) <= 3.5 * sigma_mean
-    passed = bool(p_val >= 0.001 and mean_ok)
+    # Descriptive smoke thresholds. The nominal cell chi-square p-value
+    # assumes independence that is not established for correlated SAC cells.
+    # Therefore it is NOT a security or formal significance gate.
+    mean_ok = abs(mean_p - 0.5) <= 0.03
+    passed = bool(mean_ok and mad <= expected_mad * 1.7)
 
     return {
         "mean_p": mean_p,

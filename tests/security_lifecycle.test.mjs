@@ -8,7 +8,7 @@ import {
   timingSafeEqual,
 } from '../dist/Asterion-256.js'
 
-test('state zeroization after digest()', () => {
+test('finalization prevents further use (not a zeroization proof)', () => {
   const hasher = new Asterion256()
   hasher.update('secret cryptographic key material')
   const digest = hasher.digest('hex')
@@ -25,7 +25,7 @@ test('state zeroization after digest()', () => {
   assert.throws(() => hasher.clone(), /cannot clone a finalized/)
 })
 
-test('destroy() securely terminates hasher instance', () => {
+test('destroy() prevents further use', () => {
   const hasher = new Asterion256()
   hasher.update('sensitive payload')
   hasher.destroy()
@@ -62,7 +62,7 @@ test('reset() reinitializes hasher for instance reuse', () => {
   assert.equal(digest1, digest2)
 })
 
-test('timingSafeEqual works for hex strings and byte arrays', () => {
+test('best-effort comparison works for hex strings and byte arrays', () => {
   const hexA = asterion256('message 1')
   const hexB = asterion256('message 1')
   const hexC = asterion256('message 2')
@@ -129,4 +129,44 @@ test('input validation handles various buffer types and rejects invalid inputs',
   // Rejects invalid domain in constructor and reset
   assert.throws(() => new Asterion256(123), /domain must be a string/)
   assert.throws(() => hasher.reset(999), /domain must be a string/)
+})
+
+
+
+test('destroy is irreversible; reset cannot reactivate the instance', () => {
+  const h = new Asterion256()
+  h.update('secret').destroy()
+  assert.throws(() => h.reset(), /cannot reset a destroyed instance/)
+})
+
+test('digest input validation does not consume a hasher', () => {
+  const h = new Asterion256().update('hello')
+  assert.throws(() => h.digest('bad'), /format must be hex or bytes/)
+  assert.equal(h.digest('hex'), asterion256('hello'))
+})
+
+test('split UTF-16 surrogate pairs match one-shot strings', () => {
+  const high = String.fromCharCode(0xd83d)
+  const low = String.fromCharCode(0xde00)
+  const full = asterion256('Hello 😀!')
+  const split = new Asterion256().update('Hello ').update(high).update(low + '!').digest('hex')
+  assert.equal(split, full)
+})
+
+test('switching from text to raw bytes flushes a pending lone surrogate', () => {
+  const high = String.fromCharCode(0xd83d)
+  const h = new Asterion256().update(high).update(Uint8Array.from([0x78]))
+  assert.equal(h.digest('hex'), asterion256(String.fromCharCode(0xfffd) + 'x'))
+})
+
+test('public constructor rejects null-domain bypass', () => {
+  assert.throws(() => new Asterion256(null), /domain must be a string/)
+})
+
+test('clones preserve pending UTF-16 surrogate state independently', () => {
+  const prefix = new Asterion256().update(String.fromCharCode(0xd83d))
+  const one = prefix.clone().update(String.fromCharCode(0xde00)).digest('hex')
+  const other = prefix.clone().update('Z').digest('hex')
+  assert.equal(one, asterion256('😀'))
+  assert.equal(other, asterion256(String.fromCharCode(0xfffd) + 'Z'))
 })

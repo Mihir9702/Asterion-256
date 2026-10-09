@@ -9,6 +9,16 @@ MASK64 = (1 << 64) - 1
 RATE_BYTES = 32
 ROUNDS = 14
 
+
+def encode_text(text: str) -> bytes:
+    """Emulate WHATWG TextEncoder for Python strings, including lone surrogates."""
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace").encode("utf-8")
+
+
+def encode_text(text: str) -> bytes:
+    """Emulate WHATWG TextEncoder for Python strings, including lone surrogates."""
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace").encode("utf-8")
+
 IV = [
     0x4153544552494F4E,
     0x2D3235362F415258,
@@ -101,8 +111,8 @@ def absorb_block(state: list[int], block: bytes, frame: int) -> None:
 class Asterion256:
     """Asterion-256 stateful hasher supporting streaming input.
     
-    Adheres to Python's hashlib interface conventions with update(), digest(),
-    hexdigest(), copy(), and secure zeroization.
+    Provides hashlib-like names, but digest() and hexdigest() FINALIZE.
+    State overwrite is best-effort; immutable integers cannot be securely erased.
     """
 
     def __init__(self, domain: str = "Asterion-256") -> None:
@@ -113,10 +123,12 @@ class Asterion256:
         self._buffer = bytearray()
         self._total_bytes = 0
         self._finalized = False
+        self._destroyed = False
+        self._pending_high_surrogate = ""
         self._init_domain(domain)
 
     def _init_domain(self, domain: str) -> None:
-        domain_bytes = domain.encode("utf-8")
+        domain_bytes = encode_text(domain)
         self._state = IV.copy()
         self._state[6] ^= u64(len(domain_bytes) << 48)
         self._state[7] ^= 0xA5A55A5AC3C33C3C
@@ -143,13 +155,22 @@ class Asterion256:
             raise RuntimeError("Asterion256: cannot update after digest() or destroy()")
 
         if isinstance(message, str):
-            data = message.encode("utf-8")
+            text = self._pending_high_surrogate + message
+            self._pending_high_surrogate = ""
+            if text and 0xD800 <= ord(text[-1]) <= 0xDBFF:
+                self._pending_high_surrogate = text[-1]
+                text = text[:-1]
+            data = encode_text(text)
         elif isinstance(message, (bytes, bytearray, memoryview)):
             data = bytes(message)
         else:
             raise TypeError(
                 "Asterion256.update: input must be bytes, bytearray, memoryview, or str"
             )
+
+        if not isinstance(message, str) and self._pending_high_surrogate:
+            self._pending_high_surrogate = ""
+            self.update("\ufffd")
 
         self._total_bytes += len(data)
         self._buffer.extend(data)
@@ -166,6 +187,11 @@ class Asterion256:
         """Finalize and return the 32-byte digest in 'bytes' or 'hex' format."""
         if self._finalized:
             raise RuntimeError("Asterion256: digest() may only be called once")
+        if format not in ("bytes", "hex"):
+            raise ValueError("format must be bytes or hex")
+        if self._pending_high_surrogate:
+            self._pending_high_surrogate = ""
+            self.update("\ufffd")
         self._finalized = True
 
         remainder = bytes(self._buffer)
@@ -194,10 +220,11 @@ class Asterion256:
             u64(self._state[lane]).to_bytes(8, "little") for lane in range(4)
         )
 
-        # Secure state zeroization
-        self._state = [0] * 8
+        # Best-effort cleanup; immutable Python integers cannot be guaranteed erased.
+        self._state[:] = [0] * 8
         self._buffer.clear()
         self._total_bytes = 0
+        self._pending_high_surrogate = ""
 
         if format == "bytes":
             return digest_bytes
@@ -222,15 +249,21 @@ class Asterion256:
         clone._buffer = bytearray(self._buffer)
         clone._total_bytes = self._total_bytes
         clone._finalized = self._finalized
+        clone._destroyed = self._destroyed
+        clone._pending_high_surrogate = self._pending_high_surrogate
         return clone
 
     clone = copy
 
     def reset(self, domain: str = "Asterion-256") -> Asterion256:
-        """Reset the hasher instance to its initial state."""
+        """Reset a non-destroyed hasher to its initial state."""
+        if self._destroyed:
+            raise RuntimeError("Asterion256: cannot reset a destroyed instance")
         if not isinstance(domain, str):
             raise TypeError("Asterion256.reset: domain must be a string")
         self._domain = domain
+        self._state[:] = [0] * 8
+        self._pending_high_surrogate = ""
         self._buffer.clear()
         self._total_bytes = 0
         self._finalized = False
@@ -238,10 +271,12 @@ class Asterion256:
         return self
 
     def destroy(self) -> None:
-        """Explicitly wipe sensitive internal state."""
-        self._state = [0] * 8
+        """Best-effort overwrite of reachable state; irreversibly disable this instance."""
+        self._state[:] = [0] * 8
         self._buffer.clear()
         self._total_bytes = 0
+        self._pending_high_surrogate = ""
+        self._destroyed = True
         self._finalized = True
 
 

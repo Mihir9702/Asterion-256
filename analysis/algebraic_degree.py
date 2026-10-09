@@ -1,207 +1,128 @@
-"""Algebraic Degree Growth and Cube Attack Resistance Analysis for Asterion-256.
+"""Algebraic degree UPPER BOUNDS for Asterion-256 (not security proofs).
 
-This module analyzes the propagation of algebraic degree in the Algebraic Normal Form
-(ANF) over GF(2) across the 512-bit state of Asterion-256.
-
-Theoretical Background:
-- In GF(2), the algebraic degree of a Boolean function f(x_0, ..., x_{n-1}) is the
-  maximum degree of any monomial in its ANF polynomial.
-- Bitwise XOR: deg(f ^ g) <= max(deg(f), deg(g))
-- Bitwise Rotation: deg(ROTL(f, r)_i) = deg(f_{(i-r) mod 64})
-- Modular Addition: s = (a + b) mod 2^64:
-    - s_0 = a_0 ^ b_0 -> deg(s_0) = max(deg(a_0), deg(b_0))
-    - s_1 = a_1 ^ b_1 ^ (a_0 * b_0) -> deg(s_1) = max(deg(a_1), deg(b_1), deg(a_0) + deg(b_0))
-    - In general, carry generation introduces monomial products, increasing degree by
-      at least +1 per bit position.
-- Resistance to Cube Attacks & Higher-Order Differentials:
-    - Higher-order differential attacks (Lai 1994) require algebraic degree d < 511.
-    - Cube attacks (Dinur & Shamir 2009) exploit low-degree polynomial relations.
-    - When all 512 state bits achieve maximal algebraic degree (deg = 511), higher-order
-      differential and cube attacks become mathematically impossible.
+The max-plus propagation below discards monomial cancellations and shared
+dependencies. A calculated bound of 511 does NOT establish degree 511, and
+neither would establish that cube or higher-order attacks are impossible.
 """
-
 from __future__ import annotations
 
 import argparse
-import sys
-import time
-from pathlib import Path
 from typing import Any
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "analysis") not in sys.path:
-    sys.path.insert(0, str(ROOT / "analysis"))
 
 from stats_utils import format_table
 
 STATE_BITS = 512
 LANE_BITS = 64
-MAX_DEGREE = 511  # Max degree for a balanced permutation on 512 variables
+MAX_DEGREE = STATE_BITS - 1  # Conservative upper cap for balanced full-state coordinates
 
 
-def add_deg(a: list[int], b: list[int]) -> list[int]:
-    """Propagate algebraic degree through 64-bit modular addition."""
-    res = [0] * LANE_BITS
-    c = 0  # Carry degree
-    for i in range(LANE_BITS):
-        res[i] = min(MAX_DEGREE, max(a[i], b[i], c))
-        carry_gen = a[i] + b[i]
-        carry_prop = max(a[i], b[i]) + c
-        c = min(MAX_DEGREE, max(carry_gen, carry_prop))
-    return res
+def add_degree_upper_bound(a: list[int], b: list[int]) -> list[int]:
+    """Conservative algebraic-degree bounds of modular addition output bits."""
+    carry = 0
+    bounds: list[int] = []
+    for i in range(len(a)):
+        bounds.append(min(MAX_DEGREE, max(a[i], b[i], carry)))
+        carry = min(MAX_DEGREE, max(a[i] + b[i], max(a[i], b[i]) + carry))
+    return bounds
 
 
-def rot_deg(lane: list[int], r: int) -> list[int]:
-    """Propagate algebraic degree through bitwise circular rotation."""
-    return [lane[(i - r) % LANE_BITS] for i in range(LANE_BITS)]
+def rotate_bounds(a: list[int], bits: int) -> list[int]:
+    return [a[(i - bits) % len(a)] for i in range(len(a))]
 
 
-def xor_deg(a: list[int], b: list[int]) -> list[int]:
-    """Propagate algebraic degree through bitwise XOR."""
-    return [max(a[i], b[i]) for i in range(LANE_BITS)]
+def xor_bounds(a: list[int], b: list[int]) -> list[int]:
+    return [max(x, y) for x, y in zip(a, b)]
 
 
-def mix4_deg(
-    st: list[list[int]],
-    a: int, b: int, c: int, d: int,
-    r0: int, r1: int, r2: int, r3: int,
-) -> None:
-    """Propagate algebraic degree through Asterion mix4 mixer."""
-    st[a] = add_deg(st[a], st[b])
-    st[d] = rot_deg(xor_deg(st[d], st[a]), r0)
-    st[c] = add_deg(st[c], st[d])
-    st[b] = rot_deg(xor_deg(st[b], st[c]), r1)
-    st[a] = add_deg(st[a], st[b])
-    st[d] = rot_deg(xor_deg(st[d], st[a]), r2)
-    st[c] = add_deg(st[c], st[d])
-    st[b] = rot_deg(xor_deg(st[b], st[c]), r3)
+def mix_bounds(s: list[list[int]], a: int, b: int, c: int, d: int,
+               r0: int, r1: int, r2: int, r3: int) -> None:
+    s[a] = add_degree_upper_bound(s[a], s[b])
+    s[d] = rotate_bounds(xor_bounds(s[d], s[a]), r0)
+    s[c] = add_degree_upper_bound(s[c], s[d])
+    s[b] = rotate_bounds(xor_bounds(s[b], s[c]), r1)
+    s[a] = add_degree_upper_bound(s[a], s[b])
+    s[d] = rotate_bounds(xor_bounds(s[d], s[a]), r2)
+    s[c] = add_degree_upper_bound(s[c], s[d])
+    s[b] = rotate_bounds(xor_bounds(s[b], s[c]), r3)
+
+
+def exact_addition_anf_degrees(word_bits: int = 4) -> list[int]:
+    """Exhaustive Mobius transform: exact ANF degree of a SMALL addition."""
+    if word_bits < 1 or word_bits > 6:
+        raise ValueError("Exact local example limited to 1..6 bits")
+    variables = 2 * word_bits
+    size = 1 << variables
+    bitmask = (1 << word_bits) - 1
+    degrees = []
+    for output_bit in range(word_bits):
+        truth = [
+            (((((input_code & bitmask) + (input_code >> word_bits)) & bitmask)
+                >> output_bit) & 1)
+            for input_code in range(size)
+        ]
+        for i in range(variables):
+            for mask in range(size):
+                if mask & (1 << i):
+                    truth[mask] ^= truth[mask ^ (1 << i)]
+        degrees.append(max((code.bit_count() for code, v in enumerate(truth) if v), default=0))
+    return degrees
 
 
 def run_algebraic_degree_analysis(max_rounds: int = 14) -> dict[str, Any]:
-    """Analyze degree growth across rounds and intra-round sub-steps."""
-    t0 = time.perf_counter()
-
-    # Initial state: 8 lanes x 64 bits, each input variable has degree 1
-    state = [[1] * LANE_BITS for _ in range(8)]
-
-    sub_steps: list[dict[str, Any]] = []
-    round_progression: list[dict[str, Any]] = []
-
-    def snapshot(label: str) -> dict[str, Any]:
-        all_bits = [bit for lane in state for bit in lane]
-        return {
-            "step": label,
-            "min_deg": min(all_bits),
-            "mean_deg": sum(all_bits) / len(all_bits),
-            "max_deg": max(all_bits),
-            "saturated_pct": (sum(1 for b in all_bits if b >= MAX_DEGREE) / STATE_BITS) * 100.0,
+    if not 1 <= max_rounds <= 14:
+        raise ValueError("rounds must be in 1..14")
+    s = [[1] * LANE_BITS for _ in range(8)]
+    round_data: list[dict[str, Any]] = []
+    first_bound_ceiling: int | None = None
+    # spec indexes rounds from zero; rnd+1 is only a display label.
+    for rnd in range(max_rounds):
+        mix_bounds(s, 0, 1, 2, 3, 32, 21, 17, 13)
+        mix_bounds(s, 4, 5, 6, 7, 31, 23, 16, 11)
+        mix_bounds(s, 0, 5, 2, 7, 27, 19, 15, 9)
+        mix_bounds(s, 4, 1, 6, 3, 25, 18, 14, 7)
+        s[1], s[5], s[3], s[7] = s[5], s[3], s[7], s[1]
+        s[2], s[6] = s[6], s[2]
+        for lane, mult in ((1, 7), (3, 11), (5, 17), (7, 23)):
+            s[lane] = rotate_bounds(s[lane], 1 + ((rnd * mult) % 63))
+        values = [v for lane in s for v in lane]
+        row = {
+            "round": rnd + 1, "min_bound": min(values),
+            "max_bound": max(values), "mean_bound": sum(values) / len(values),
+            "at_upper_cap_count": sum(x == MAX_DEGREE for x in values),
         }
-
-    sub_steps.append(snapshot("Initial State"))
-
-    full_saturation_round = None
-
-    for rnd in range(1, max_rounds + 1):
-        # Round Injection (XOR with constants does not increase degree)
-
-        # Local mixing
-        mix4_deg(state, 0, 1, 2, 3, 32, 21, 17, 13)
-        if rnd == 1:
-            sub_steps.append(snapshot("Round 1: Local Mix [0..3]"))
-
-        mix4_deg(state, 4, 5, 6, 7, 31, 23, 16, 11)
-        if rnd == 1:
-            sub_steps.append(snapshot("Round 1: Local Mix [4..7]"))
-
-        # Cross mixing
-        mix4_deg(state, 0, 5, 2, 7, 27, 19, 15, 9)
-        if rnd == 1:
-            sub_steps.append(snapshot("Round 1: Cross Mix [0,5,2,7]"))
-
-        mix4_deg(state, 4, 1, 6, 3, 25, 18, 14, 7)
-        if rnd == 1:
-            sub_steps.append(snapshot("Round 1: Cross Mix [4,1,6,3]"))
-
-        # Lane braid
-        l1, l2, l3 = state[1], state[2], state[3]
-        l5, l6, l7 = state[5], state[6], state[7]
-        state[1], state[5] = l5, l3
-        state[3], state[7] = l7, l1
-        state[2], state[6] = l6, l2
-
-        # Round rotations
-        state[1] = rot_deg(state[1], 1 + ((rnd * 7) % 63))
-        state[3] = rot_deg(state[3], 1 + ((rnd * 11) % 63))
-        state[5] = rot_deg(state[5], 1 + ((rnd * 17) % 63))
-        state[7] = rot_deg(state[7], 1 + ((rnd * 23) % 63))
-
-        snap = snapshot(f"Round {rnd}")
-        round_progression.append(snap)
-
-        if snap["min_deg"] >= MAX_DEGREE and full_saturation_round is None:
-            full_saturation_round = rnd
-
-    elapsed = time.perf_counter() - t0
-
-    # Assessment: Full saturation within <= 2 rounds is excellent
-    passed = full_saturation_round is not None and full_saturation_round <= 2
-
+        round_data.append(row)
+        if first_bound_ceiling is None and row["min_bound"] == MAX_DEGREE:
+            first_bound_ceiling = rnd + 1
+    exact_toy = exact_addition_anf_degrees(4)
+    expected_bounds = add_degree_upper_bound([1] * 4, [1] * 4)
+    if any(e > b for e, b in zip(exact_toy, expected_bounds)):
+        raise AssertionError("Local modular-addition upper bound refuted")
     return {
-        "sub_steps": sub_steps,
-        "round_progression": round_progression,
-        "saturation_round": full_saturation_round,
-        "passed": passed,
-        "elapsed_sec": elapsed,
+        "status": "UPPER_BOUNDS_ONLY",
+        "rounds": round_data,
+        "upper_bound_ceiling_round": first_bound_ceiling,
+        "verified_exact_4bit_add_degrees": exact_toy,
+        "verified_upper_4bit_add_bounds": expected_bounds,
+        "actual_512bit_degrees": None,
+        "security_margin": None,
     }
 
 
 def print_report(res: dict[str, Any]) -> None:
-    print("\n" + "#" * 80)
-    print(" MODULE 7: Algebraic Degree Growth & Cube Attack Resistance")
-    print("#" * 80)
-
-    print("\n[*] Intra-Round Step Progression (Round 1):")
-    sub_headers = ["Phase / Step", "Min Deg", "Mean Deg", "Max Deg", "Saturated %"]
-    sub_rows = [
-        [
-            s["step"],
-            f"{s['min_deg']}",
-            f"{s['mean_deg']:.1f}",
-            f"{s['max_deg']}",
-            f"{s['saturated_pct']:.1f}%",
-        ]
-        for s in res["sub_steps"]
-    ]
-    print(format_table(sub_headers, sub_rows))
-
-    print("\n[*] Round-by-Round Degree Saturation:")
-    rnd_headers = ["Round", "Min Deg", "Mean Deg", "Max Deg", "Saturated %", "Status"]
-    rnd_rows = [
-        [
-            r["step"],
-            f"{r['min_deg']}",
-            f"{r['mean_deg']:.1f}",
-            f"{r['max_deg']}",
-            f"{r['saturated_pct']:.1f}%",
-            "MAXIMAL" if r["min_deg"] >= MAX_DEGREE else "GROWING",
-        ]
-        for r in res["round_progression"]
-    ]
-    print(format_table(rnd_headers, rnd_rows))
-
-    print(f"\n- Maximal algebraic degree (511) reached at Round: {res['saturation_round']}")
-    print(f"- Security Margin against Higher-Order Differentials: {14 - (res['saturation_round'] or 14)} rounds")
-    print(f"- Algebraic Degree Assessment: {'PASS' if res['passed'] else 'FAIL'}")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Asterion-256 Algebraic Degree Analysis")
-    parser.add_argument("--rounds", type=int, default=14, help="Permutation rounds to evaluate")
-    args = parser.parse_args()
-
-    res = run_algebraic_degree_analysis(args.rounds)
-    print_report(res)
+    print("\nALGEBRAIC DEGREE UPPER BOUNDS — NOT EXACT DEGREES")
+    print(format_table(
+        ["Round", "min bound", "mean bound", "max bound", "at ceiling"],
+        [[str(x["round"]), str(x["min_bound"]),
+          f'{x["mean_bound"]:.2f}', str(x["max_bound"]),
+          str(x["at_upper_cap_count"])] for x in res["rounds"]]
+    ))
+    print("Exact 4-bit addition degree:", res["verified_exact_4bit_add_degrees"])
+    print("Conservative 4-bit bound:", res["verified_upper_4bit_add_bounds"])
+    print("Actual full-permutation algebraic degrees: UNKNOWN")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--rounds", type=int, default=14)
+    args = parser.parse_args()
+    print_report(run_algebraic_degree_analysis(args.rounds))
