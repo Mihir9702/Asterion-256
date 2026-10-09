@@ -1,6 +1,6 @@
-"""Unified Cryptanalysis and Statistical Testing Suite for Asterion-256.
+"""Empirical Smoke and Exploratory Research Suite for Asterion-256.
 
-Runs empirical verification across:
+Runs limited empirical experiments across; does not certify security:
 1. Permutation diffusion and bit-dependency completeness.
 2. Full-hash Strict Avalanche Criterion (SAC) & Bit Independence (BIC).
 3. NIST SP 800-22 Monobit and multi-distribution uniformity.
@@ -43,7 +43,7 @@ def run_full_suite(
     iso_time = datetime.now(timezone.utc).isoformat()
 
     print("=" * 80)
-    print(f" Asterion-256 v0.1.0 Cryptanalysis & Statistical Testing Suite")
+    print(f" Asterion-256 v0.1.0 Empirical Smoke & Research Experiments")
     print(f" Mode: {'QUICK (smoke verification)' if quick else 'FULL (high statistical power)'}")
     print(f" Timestamp: {iso_time}")
     print("=" * 80 + "\n")
@@ -165,36 +165,25 @@ def run_full_suite(
         if not passed:
             all_passed = False
 
-    # 6. SMT Differential Cryptanalysis
+    # 6. Validated ADDITION example; optional exploratory, smaller-word SMT.
     if selected_module in (None, "smt"):
         res_smt = run_smt_differential_suite(quick=quick)
         full_report["modules"]["smt_differential"] = res_smt
         print_smt_report(res_smt)
         scorecard.append((
-            "Differential Security Margin",
-            "Margin >= 6 rounds (Weight >= 256)",
-            ">= 6 rounds",
-            f"{res_smt['security_margin_rounds']} rounds",
-            "PASS" if res_smt["passed"] else "FAIL",
+            "Modular-Addition Differential", "Counterexample: active with zero weight",
+            "Deterministic", "Verified", "INFO",
         ))
-        if not res_smt["passed"]:
-            all_passed = False
 
-    # 7. Algebraic Degree Growth
+    # 7. Algebraic degree UPPER-BOUND experiment (not exact degrees).
     if selected_module in (None, "algebraic"):
         res_alg = run_algebraic_degree_analysis(max_rounds=14)
         full_report["modules"]["algebraic_degree"] = res_alg
         print_algebraic_report(res_alg)
-        sat_round = res_alg["saturation_round"] or 14
         scorecard.append((
-            "Algebraic Degree Saturation",
-            "Degree 511 reached in <= 2 rounds",
-            "<= Round 2",
-            f"Round {sat_round}",
-            "PASS" if res_alg["passed"] else "FAIL",
+            "Algebraic Degree Model", "Exact 4-bit addition ANF cross-check",
+            "Conservative bound", "Verified", "INFO",
         ))
-        if not res_alg["passed"]:
-            all_passed = False
 
     total_time = time.perf_counter() - start_time
     full_report["overall_passed"] = all_passed
@@ -202,12 +191,12 @@ def run_full_suite(
 
     # Scorecard Display
     print("\n" + "=" * 80)
-    print(" EXECUTIVE CRYPTANALYSIS SCORECARD")
+    print(" EMPIRICAL SMOKE & EXPLORATORY RESEARCH SCORECARD")
     print("=" * 80)
     headers = ["Evaluation", "Target Metric", "Reference", "Observed", "Verdict"]
     print(format_table(headers, scorecard, alignments=["<", "<", ">", ">", ":"]))
     print(f"\nTotal Evaluation Time: {total_time:.2f}s")
-    print(f"Overall Suite Verdict: {'[PASSED] All empirical properties verified.' if all_passed else '[FAILED] One or more properties failed criteria.'}")
+    print(f"Empirical smoke checks: {'PASS' if all_passed else 'FAIL'}; CRYPTOGRAPHIC SECURITY: UNKNOWN")
     print("=" * 80 + "\n")
 
     if json_output:

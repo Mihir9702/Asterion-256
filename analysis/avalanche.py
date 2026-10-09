@@ -1,6 +1,6 @@
 """Strict Avalanche Criterion (SAC) and Bit Independence Criterion (BIC) analysis for Asterion-256.
 
-Normative verification of Webster & Tavares (1985) avalanche properties on full hash outputs.
+Exploratory sampled avalanche observations. Does NOT prove the cryptographic SAC property.
 """
 
 from __future__ import annotations

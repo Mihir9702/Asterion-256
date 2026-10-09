@@ -227,10 +227,16 @@ Hex output is the lowercase hexadecimal encoding of those 32 bytes.
 
 ## 13. API lifecycle
 
-A digest object may be finalized exactly once.
+A digest operation finalizes exactly once per initialization.
 
-- `update()` after `digest()` is an error.
-- A second `digest()` call is an error.
+- `update()` after `digest()` is an error until reset.
+- A second `digest()` call before reset is an error.
+- `reset()` starts a new session with the specified domain.
+- `destroy()` irreversibly disables the instance (including reset).
+- Bypassing domain initialization is not part of this protocol.
+- Consecutive text chunks are combined as UTF-16 text before WHATWG UTF-8
+  encoding, including pairs of surrogates split across text chunks.
+  A pending high surrogate followed by bytes is first replaced by U+FFFD.
 ## 14. Versioning
 
 Asterion-256 v0.1.0 fixes all IV values, constants, rotation schedules, frames, padding rules, length binding, and output order above.

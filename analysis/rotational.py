@@ -170,7 +170,7 @@ def run_rotational_tests(quick: bool = False) -> tuple[dict[str, Any], bool]:
         ])
     print(format_table(r_headers, r_rows))
 
-    print(f"\n- Rotational Cryptanalysis Status: {'PASS' if all_passed else 'FAIL'}")
+    print(f"\n- Rotational SAMPLE SANITY: {'PASS' if all_passed else 'FAIL'} (no security proof)")
 
     return {
         "offsets": offset_results,

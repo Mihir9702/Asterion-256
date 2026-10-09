@@ -1,0 +1,153 @@
+{
+  "algorithm": "Asterion-256 v0.1.0",
+  "baseline_revision": "f439376b80fb8fd7b3da312639365d2988752a6a",
+  "seed": 20261008,
+  "method": "fixed seed sampled full-width differences; exhaustive 16-bit surrogate",
+  "full_width": [
+    {
+      "rounds": 1,
+      "samples": 256,
+      "minimum_output_hw": 123,
+      "mean_output_hw": 206.109375,
+      "maximum_output_hw": 268,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 2,
+      "samples": 256,
+      "minimum_output_hw": 222,
+      "mean_output_hw": 255.16015625,
+      "maximum_output_hw": 293,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 3,
+      "samples": 256,
+      "minimum_output_hw": 224,
+      "mean_output_hw": 256.09765625,
+      "maximum_output_hw": 291,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 4,
+      "samples": 256,
+      "minimum_output_hw": 224,
+      "mean_output_hw": 256.34375,
+      "maximum_output_hw": 281,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 5,
+      "samples": 256,
+      "minimum_output_hw": 226,
+      "mean_output_hw": 256.5859375,
+      "maximum_output_hw": 283,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 6,
+      "samples": 256,
+      "minimum_output_hw": 208,
+      "mean_output_hw": 257.36328125,
+      "maximum_output_hw": 295,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 7,
+      "samples": 256,
+      "minimum_output_hw": 212,
+      "mean_output_hw": 255.06640625,
+      "maximum_output_hw": 289,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 8,
+      "samples": 256,
+      "minimum_output_hw": 227,
+      "mean_output_hw": 256.2734375,
+      "maximum_output_hw": 291,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 9,
+      "samples": 256,
+      "minimum_output_hw": 226,
+      "mean_output_hw": 256.48828125,
+      "maximum_output_hw": 292,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 10,
+      "samples": 256,
+      "minimum_output_hw": 226,
+      "mean_output_hw": 255.20703125,
+      "maximum_output_hw": 291,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 11,
+      "samples": 256,
+      "minimum_output_hw": 223,
+      "mean_output_hw": 254.80859375,
+      "maximum_output_hw": 287,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 12,
+      "samples": 256,
+      "minimum_output_hw": 228,
+      "mean_output_hw": 256.0703125,
+      "maximum_output_hw": 285,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 13,
+      "samples": 256,
+      "minimum_output_hw": 227,
+      "mean_output_hw": 255.36328125,
+      "maximum_output_hw": 286,
+      "security_claim": "none; this cannot bound differential probability"
+    },
+    {
+      "rounds": 14,
+      "samples": 256,
+      "minimum_output_hw": 225,
+      "mean_output_hw": 254.265625,
+      "maximum_output_hw": 284,
+      "security_claim": "none; this cannot bound differential probability"
+    }
+  ],
+  "toy_differential": [
+    {
+      "model": "2-bit-per-lane truncated-constant surrogate, NOT Asterion-256",
+      "input_difference": "lane 0, bit 0",
+      "rounds": 1,
+      "enumerated_states": 65536,
+      "distinct_output_differences": 380,
+      "highest_count": 2048,
+      "most_frequent_output_difference_hex": "0x226b",
+      "max_observed_differential_probability": 0.03125,
+      "cryptographic_claim": "none; surrogate only"
+    },
+    {
+      "model": "2-bit-per-lane truncated-constant surrogate, NOT Asterion-256",
+      "input_difference": "lane 0, bit 0",
+      "rounds": 2,
+      "enumerated_states": 65536,
+      "distinct_output_differences": 19846,
+      "highest_count": 128,
+      "most_frequent_output_difference_hex": "0x2209",
+      "max_observed_differential_probability": 0.001953125,
+      "cryptographic_claim": "none; surrogate only"
+    }
+  ],
+  "conclusion": "No upper bound on full-round characteristic probabilities established; insufficient for security claims.",
+  "one_round_empirical_distinguisher": {
+    "experiment": "single-bit perturbation of full internal state, 1 permutation round",
+    "observed_mean_hw": 206.109375,
+    "ideal_random_permutation_mean_hw": 256.0,
+    "approx_se_under_independent_ideal_samples": 0.7071067811865476,
+    "descriptive_deviation_in_se_units": -70.55599851027019,
+    "caution": "an exploratory one-round distinguishability signal only; no 14-round attack or bound"
+  }
+}

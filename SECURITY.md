@@ -57,3 +57,12 @@ Version 0.1.0 is behaviorally frozen by SPEC.md and the committed known-answer v
 Asterion-256 outputs 256 bits but has a 256-bit sponge capacity. Even under an ideal-permutation model, that does not support a claim of 256-bit generic security.
 
 The custom 14-round permutation has not received sufficient public cryptanalysis to establish even the generic bound. The correct current security status is therefore **unknown / experimental**.
+
+The analysis scorecard is not a proof. Earlier scripts incorrectly calculated
+differential weight from active additions and interpreted algebraic upper
+bounds as actual degree. Those claims have been withdrawn.
+
+The v0.1.1 implementation uses BEST-EFFORT object overwrites, not assured
+erasure of garbage-collected BigInts or immutable Python integers. The
+JavaScript timingSafeEqual utility has NO constant-time execution guarantee.
+No independent cryptographic review or production security certification exists.

@@ -1,264 +1,218 @@
-"""Automated SMT Differential Cryptanalysis and Bound Modeling for Asterion-256.
+"""Exploratory Asterion differential research.
 
-Uses Z3 SMT solver to model differential characteristic propagation across
-the 4-lane ARX mixer (mix4) and multi-round Asterion permutations.
-
-Theoretical Framework:
-- Operations in Asterion-256:
-  - Bitwise XOR: Delta(x ^ y) = Delta x ^ Delta y (deterministic, weight 0)
-  - Bitwise Rotation: Delta(ROTL(x, r)) = ROTL(Delta x, r) (deterministic, weight 0)
-  - Modular Addition: s = (x + y) mod 2^w
-- Carry-Difference Differential Model (Mouha et al. FSE 2011 / Lipmaa-Moriai FSE 2001):
-  - Let Delta c be the carry XOR difference vector with Delta c[0] = 0.
-  - gamma[i] = alpha[i] ^ beta[i] ^ Delta c[i]
-  - If (alpha[i], beta[i], Delta c[i]) == (0, 0, 0) -> Delta c[i+1] = 0 (prob 1, weight 0)
-  - If (alpha[i], beta[i], Delta c[i]) == (1, 1, 1) -> Delta c[i+1] = 1 (prob 1, weight 0)
-  - Otherwise -> Delta c[i+1] can be 0 or 1 with probability 1/2 (weight 1).
-- Total Differential Probability: P = 2^(-W), where W = sum(weights).
-- Active Modular Additions:
-  - If an addition has non-zero input or output differences, it is active.
-  - When W >= 256, differential characteristic probability drops below 2^(-256),
-    rendering standard differential cryptanalysis mathematically infeasible.
+This is NOT a proof of collision resistance or a full-round security margin.
+All XOR-difference probabilities here are exact only for the identified
+small modular-addition model. The optional SMT experiment searches for
+witnesses in a reduced-word surrogate, not the 64-bit construction.
 """
-
 from __future__ import annotations
 
 import argparse
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT / "analysis") not in sys.path:
-    sys.path.insert(0, str(ROOT / "analysis"))
+REF_DIR = str(Path(__file__).resolve().parents[1] / 'reference')
+if REF_DIR not in sys.path:
+    sys.path.insert(0, REF_DIR)
 
 from stats_utils import format_table
 
 try:
     import z3
-    HAS_Z3 = True
 except ImportError:
-    HAS_Z3 = False
+    z3 = None
 
 
-def solve_minimal_differential_trail_z3(
-    word_bits: int = 8,
-    rounds: int = 1,
-    timeout_ms: int = 10000,
-) -> dict[str, Any]:
-    """Search for optimal differential trail using Z3 solver on scaled word width."""
-    if not HAS_Z3:
-        return {"status": "SKIPPED (z3-solver not installed)"}
+def addition_xor_distribution(alpha: int, beta: int, word_bits: int = 8) -> dict[int, int]:
+    """Exact XOR difference histogram for z=(x+y) mod 2**word_bits.
 
-    s = z3.Optimize()
-    s.set("timeout", timeout_ms)
+    The histogram has 2**(2*word_bits) equiprobable operand pairs.
+    Restrict to <=8-bit words to keep this reference computation bounded.
+    """
+    if not 1 <= word_bits <= 8:
+        raise ValueError("word_bits must be in 1..8")
+    n = 1 << word_bits
+    if not (0 <= alpha < n and 0 <= beta < n):
+        raise ValueError("differences exceed word width")
+    mask = n - 1
+    counts: dict[int, int] = {}
+    for x in range(n):
+        for y in range(n):
+            gamma = ((x + y) & mask) ^ (((x ^ alpha) + (y ^ beta)) & mask)
+            counts[gamma] = counts.get(gamma, 0) + 1
+    return counts
 
-    # State variables for round 0 (input) and round R (output)
-    # 8 lanes
-    w = word_bits
-    in_lanes = [z3.BitVec(f"in_{i}", w) for i in range(8)]
 
-    # Non-trivial input difference constraint: at least one bit must be flipped
-    s.add(z3.Or([lane != 0 for lane in in_lanes]))
+def addition_xor_probability(alpha: int, beta: int, gamma: int, word_bits: int = 8) -> float:
+    counts = addition_xor_distribution(alpha, beta, word_bits)
+    return counts.get(gamma, 0) / float(1 << (2 * word_bits))
 
-    # Scaling rotation constants to word_bits
-    def scale_rot(r: int) -> int:
-        return (r * w) // 64 or 1
 
-    weights = []
-    current_state = list(in_lanes)
+def exact_word_permute(state: list[int], rounds: int = 1, word_bits: int = 4) -> list[int]:
+    """Explicit surrogate: truncate constants and rotate modulo word_bits.
+
+    For word_bits=64 this construction matches the Asterion permutation.
+    Reduced widths are ONLY models, not security results for Asterion-256.
+    """
+    from asterion256 import ROUND_CONSTANTS
+
+    if not 1 <= word_bits <= 64 or not 0 <= rounds <= len(ROUND_CONSTANTS):
+        raise ValueError("invalid reduced-round model parameters")
+    mask = (1 << word_bits) - 1
+    s = [v & mask for v in state]
+
+    def rot(x: int, n: int) -> int:
+        n %= word_bits
+        return ((x << n) | (x >> (word_bits - n))) & mask if n else x & mask
+
+    def mix(a: int, b: int, c: int, d: int, rs: tuple[int, int, int, int]) -> None:
+        s[a] = (s[a] + s[b]) & mask
+        s[d] = rot(s[d] ^ s[a], rs[0])
+        s[c] = (s[c] + s[d]) & mask
+        s[b] = rot(s[b] ^ s[c], rs[1])
+        s[a] = (s[a] + s[b]) & mask
+        s[d] = rot(s[d] ^ s[a], rs[2])
+        s[c] = (s[c] + s[d]) & mask
+        s[b] = rot(s[b] ^ s[c], rs[3])
 
     for rnd in range(rounds):
-        # In each round, we track 16 additions
-        # Local mixing
-        # mix4(0, 1, 2, 3)
-        # mix4(4, 5, 6, 7)
-        # Cross mixing
-        # mix4(0, 5, 2, 7)
-        # mix4(4, 1, 6, 3)
-        def z3_rotl(val: z3.BitVecRef, r: int) -> z3.BitVecRef:
-            r = r % w
-            if r == 0:
-                return val
-            return z3.RotateLeft(val, r)
+        rc = ROUND_CONSTANTS[rnd] & mask
+        s[0] ^= rc
+        s[4] ^= rot(rc, 29)
+        s[7] = (s[7] + (rnd + 1) * 0x9E3779B9) & mask
+        mix(0, 1, 2, 3, (32, 21, 17, 13))
+        mix(4, 5, 6, 7, (31, 23, 16, 11))
+        mix(0, 5, 2, 7, (27, 19, 15, 9))
+        mix(4, 1, 6, 3, (25, 18, 14, 7))
+        s[1], s[5], s[3], s[7] = s[5], s[3], s[7], s[1]
+        s[2], s[6] = s[6], s[2]
+        for lane, mul in ((1, 7), (3, 11), (5, 17), (7, 23)):
+            s[lane] = rot(s[lane], 1 + ((rnd * mul) % 63))
+    return s
 
-        def z3_add_diff(
-            a_diff: z3.BitVecRef,
-            b_diff: z3.BitVecRef,
-            step_name: str,
-        ) -> z3.BitVecRef:
-            out_diff = z3.BitVec(f"{step_name}_out", w)
-            # Active indicator
-            is_active = z3.If(z3.Or(a_diff != 0, b_diff != 0, out_diff != 0), 1, 0)
-            weights.append(is_active)
-            return out_diff
 
-        def z3_mix4(
-            st: list[z3.BitVecRef],
-            a: int, b: int, c: int, d: int,
-            r0: int, r1: int, r2: int, r3: int,
-            prefix: str,
-        ) -> None:
-            r0_s, r1_s, r2_s, r3_s = scale_rot(r0), scale_rot(r1), scale_rot(r2), scale_rot(r3)
-            st[a] = z3_add_diff(st[a], st[b], f"{prefix}_add0")
-            st[d] = z3_rotl(st[d] ^ st[a], r0_s)
-            st[c] = z3_add_diff(st[c], st[d], f"{prefix}_add1")
-            st[b] = z3_rotl(st[b] ^ st[c], r1_s)
-            st[a] = z3_add_diff(st[a], st[b], f"{prefix}_add2")
-            st[d] = z3_rotl(st[d] ^ st[a], r2_s)
-            st[c] = z3_add_diff(st[c], st[d], f"{prefix}_add3")
-            st[b] = z3_rotl(st[b] ^ st[c], r3_s)
+def exact_word_permute_z3(state: list[Any], rounds: int = 1, word_bits: int = 4) -> list[Any]:
+    """Encode BOTH actual operand streams using bit-vector modular addition."""
+    if z3 is None:
+        raise RuntimeError("Install z3-solver to run the optional SMT experiment")
+    from asterion256 import ROUND_CONSTANTS
 
-        # Local
-        z3_mix4(current_state, 0, 1, 2, 3, 32, 21, 17, 13, f"r{rnd}_loc0")
-        z3_mix4(current_state, 4, 5, 6, 7, 31, 23, 16, 11, f"r{rnd}_loc1")
+    mask = (1 << word_bits) - 1
+    s = list(state)
 
-        # Cross
-        z3_mix4(current_state, 0, 5, 2, 7, 27, 19, 15, 9, f"r{rnd}_cross0")
-        z3_mix4(current_state, 4, 1, 6, 3, 25, 18, 14, 7, f"r{rnd}_cross1")
+    def rot(x: Any, n: int) -> Any:
+        return z3.RotateLeft(x, n % word_bits)
 
-        # Braid
-        l1, l2, l3 = current_state[1], current_state[2], current_state[3]
-        l5, l6, l7 = current_state[5], current_state[6], current_state[7]
-        current_state[1], current_state[5] = l5, l3
-        current_state[3], current_state[7] = l7, l1
-        current_state[2], current_state[6] = l6, l2
+    def mix(a: int, b: int, c: int, d: int, rs: tuple[int, int, int, int]) -> None:
+        s[a] = s[a] + s[b]
+        s[d] = rot(s[d] ^ s[a], rs[0])
+        s[c] = s[c] + s[d]
+        s[b] = rot(s[b] ^ s[c], rs[1])
+        s[a] = s[a] + s[b]
+        s[d] = rot(s[d] ^ s[a], rs[2])
+        s[c] = s[c] + s[d]
+        s[b] = rot(s[b] ^ s[c], rs[3])
 
-        # Round rotations
-        current_state[1] = z3_rotl(current_state[1], scale_rot(1 + ((rnd * 7) % 63)))
-        current_state[3] = z3_rotl(current_state[3], scale_rot(1 + ((rnd * 11) % 63)))
-        current_state[5] = z3_rotl(current_state[5], scale_rot(1 + ((rnd * 17) % 63)))
-        current_state[7] = z3_rotl(current_state[7], scale_rot(1 + ((rnd * 23) % 63)))
+    for rnd in range(rounds):
+        rc = ROUND_CONSTANTS[rnd] & mask
+        s[0] = s[0] ^ z3.BitVecVal(rc, word_bits)
+        s[4] = s[4] ^ rot(z3.BitVecVal(rc, word_bits), 29)
+        s[7] = s[7] + z3.BitVecVal((rnd + 1) * 0x9E3779B9 & mask, word_bits)
+        mix(0, 1, 2, 3, (32, 21, 17, 13))
+        mix(4, 5, 6, 7, (31, 23, 16, 11))
+        mix(0, 5, 2, 7, (27, 19, 15, 9))
+        mix(4, 1, 6, 3, (25, 18, 14, 7))
+        s[1], s[5], s[3], s[7] = s[5], s[3], s[7], s[1]
+        s[2], s[6] = s[6], s[2]
+        for lane, mul in ((1, 7), (3, 11), (5, 17), (7, 23)):
+            s[lane] = rot(s[lane], 1 + ((rnd * mul) % 63))
+    return s
 
-    total_active = z3.Sum(weights)
-    h = s.minimize(total_active)
 
-    check_res = s.check()
-    if check_res == z3.sat:
-        min_active = s.lower(h).as_long()
-        return {
-            "status": "OPTIMAL_FOUND",
-            "rounds": rounds,
-            "word_bits": word_bits,
-            "min_active_additions": min_active,
-        }
+def smt_reduced_round_witness(word_bits: int = 4, rounds: int = 1, timeout_ms: int = 5000) -> dict[str, Any]:
+    """Find a valid toy-model single-bit input difference and minimize output HW.
+
+    The Optimize objective is only a search heuristic. Do NOT call its result
+    a probability bound, attack complexity, or security margin.
+    """
+    if z3 is None:
+        return {"status": "NOT_RUN", "reason": "z3-solver not installed"}
+    if not 2 <= word_bits <= 8 or not 1 <= rounds <= 3:
+        raise ValueError("toy solver limited to 2..8 bit words, 1..3 rounds")
+    a = [z3.BitVec(f"a{i}", word_bits) for i in range(8)]
+    b = [z3.BitVec(f"b{i}", word_bits) for i in range(8)]
+    mask = (1 << word_bits) - 1
+    solver = z3.Optimize()
+    solver.set(timeout=timeout_ms)
+    # Fix an input XOR difference (one bit in lane zero).
+    for i in range(8):
+        solver.add(b[i] == (a[i] ^ z3.BitVecVal(1 if i == 0 else 0, word_bits)))
+    out_a = exact_word_permute_z3(a, rounds, word_bits)
+    out_b = exact_word_permute_z3(b, rounds, word_bits)
+    delta = [out_a[i] ^ out_b[i] for i in range(8)]
+    bit_count = z3.Sum([
+        z3.If(z3.Extract(bit, bit, d) == z3.BitVecVal(1, 1), 1, 0)
+        for d in delta for bit in range(word_bits)
+    ])
+    solver.minimize(bit_count)
+    status = solver.check()
+    if status != z3.sat:
+        return {"status": str(status), "word_bits": word_bits, "rounds": rounds}
+    model = solver.model()
+    base = [model.eval(x).as_long() & mask for x in a]
+    peer = [model.eval(x).as_long() & mask for x in b]
+    oa = exact_word_permute(base, rounds, word_bits)
+    ob = exact_word_permute(peer, rounds, word_bits)
+    observed = sum((x ^ y).bit_count() for x, y in zip(oa, ob))
+    reported = model.eval(bit_count).as_long()
+    if reported != observed or (base[0] ^ peer[0]) != 1 or any(base[i] != peer[i] for i in range(1, 8)):
+        raise AssertionError("SMT witness failed independent executable toy-model replay")
     return {
-        "status": str(check_res),
-        "rounds": rounds,
-        "word_bits": word_bits,
+        "status": "SAT_WITNESS_VALIDATED",
+        "word_bits": word_bits, "rounds": rounds,
+        "input_hw": 1, "output_hw": observed,
+        "base_state": [hex(x) for x in base],
+        "paired_state": [hex(x) for x in peer],
+        "claim": "toy-model witness only; no full-size security conclusion",
     }
-
-
-def compute_analytical_differential_bounds(max_rounds: int = 14) -> list[dict[str, Any]]:
-    """Compute formal lower bounds on active additions and differential weight."""
-    # Round 1: Any single active lane activates at least 12 additions (4 local + 8 cross)
-    # Round 2+: All 8 lanes are active -> all 16 additions per round are active
-    rows = []
-    cum_active = 0
-    conservative_weight_per_add = 4.0  # Conservative lower bound: 4 bits of weight per 64-bit addition
-    empirical_mean_weight_per_add = 12.5  # Typical ARX addition weight
-
-    for rnd in range(1, max_rounds + 1):
-        if rnd == 1:
-            active_in_round = 12
-        else:
-            active_in_round = 16
-
-        cum_active += active_in_round
-        min_weight = int(cum_active * conservative_weight_per_add)
-        mean_weight = int(cum_active * empirical_mean_weight_per_add)
-
-        status = "BREAKABLE" if min_weight < 128 else ("MARGINAL" if min_weight < 256 else "UNBREAKABLE")
-
-        rows.append({
-            "round": rnd,
-            "active_in_round": active_in_round,
-            "cum_active": cum_active,
-            "min_weight": min_weight,
-            "mean_weight": mean_weight,
-            "max_prob_log2": -min_weight,
-            "status": status,
-        })
-
-    return rows
 
 
 def run_smt_differential_suite(quick: bool = False) -> dict[str, Any]:
-    """Execute SMT solver verification and formal analytical bounding."""
-    t0 = time.perf_counter()
-
-    smt_res_1r = None
-    if HAS_Z3:
-        smt_res_1r = solve_minimal_differential_trail_z3(word_bits=8, rounds=1)
-
-    bounds = compute_analytical_differential_bounds(14)
-
-    # Security margin: number of rounds where min_weight >= 256
-    unbreakable_rounds = [r["round"] for r in bounds if r["min_weight"] >= 256]
-    first_secure_round = unbreakable_rounds[0] if unbreakable_rounds else 14
-    margin_rounds = 14 - first_secure_round
-
-    elapsed = time.perf_counter() - t0
-
+    """Return factual findings; no invented security margins or PASS verdict."""
+    examples = []
+    for width in (4, 8):
+        alpha = 1 << (width - 1)
+        dist = addition_xor_distribution(alpha, 0, width)
+        expected = 1 << (2 * width)
+        assert dist == {alpha: expected}, "MSB counterexample mismatch"
+        examples.append({
+            "word_bits": width, "alpha": hex(alpha), "beta": "0x0",
+            "gamma": hex(alpha), "probability": 1.0, "differential_weight": 0.0,
+        })
+    witness = smt_reduced_round_witness(word_bits=4, rounds=1, timeout_ms=1500 if quick else 5000)
     return {
-        "has_z3": HAS_Z3,
-        "smt_1r": smt_res_1r,
-        "bounds": bounds,
-        "first_secure_round": first_secure_round,
-        "security_margin_rounds": margin_rounds,
-        "passed": margin_rounds >= 6,  # Standard: >= 6 rounds of differential security margin
-        "elapsed_sec": elapsed,
+        "status": "EXPLORATORY_ONLY", "full_round_security_margin": None,
+        "addition_counterexamples": examples,
+        "toy_solver": witness,
+        "safety_conclusion": "Unknown; no differential bound is established",
     }
 
 
-def print_report(res: dict[str, Any]) -> None:
-    print("\n" + "#" * 80)
-    print(" MODULE 6: SMT Differential Cryptanalysis & Active Operation Bounds")
-    print("#" * 80)
-
-    if res["has_z3"] and res["smt_1r"]:
-        print(f"[*] Z3 Solver Verification (Reduced Word 8-bit, 1 Round):")
-        print(f"    - Solver Status: {res['smt_1r'].get('status')}")
-        print(f"    - Minimum Active Additions in Round 1: {res['smt_1r'].get('min_active_additions', 'N/A')} / 16")
-
-    print("\n[*] Round-by-Round Active Operations & Differential Probability Upper Bounds:")
-    headers = [
-        "Round",
-        "Active Additions",
-        "Cumul. Active",
-        "Min Weight (-log2 P)",
-        "Mean Weight",
-        "Max Diff. Prob",
-        "Security Status",
-    ]
-    rows = [
-        [
-            f"Round {b['round']:2d}",
-            f"{b['active_in_round']} / 16",
-            f"{b['cum_active']} / {b['round']*16}",
-            f"{b['min_weight']} bits",
-            f"{b['mean_weight']} bits",
-            f"2^{b['max_prob_log2']}",
-            b["status"],
-        ]
-        for b in res["bounds"]
-    ]
-    print(format_table(headers, rows))
-
-    print(f"\n- 256-Bit Differential Bound Achieved at: Round {res['first_secure_round']}")
-    print(f"- Full 14-Round Differential Security Margin: {res['security_margin_rounds']} rounds ({(res['security_margin_rounds']/14)*100:.1f}%)")
-    print(f"- Differential Cryptanalysis Assessment: {'PASS' if res['passed'] else 'FAIL'}")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Asterion-256 SMT Differential Cryptanalysis")
-    parser.add_argument("--quick", action="store_true", help="Quick evaluation mode")
-    args = parser.parse_args()
-
-    res = run_smt_differential_suite(args.quick)
-    print_report(res)
+def print_report(results: dict[str, Any]) -> None:
+    print("\nEXPLORATORY DIFFERENTIAL RESEARCH — NO SECURITY PASS/FAIL")
+    print(format_table(
+        ["word bits", "input XOR", "output XOR", "probability", "weight"],
+        [[str(x["word_bits"]), x["alpha"], x["gamma"], "1.0", "0.0"]
+         for x in results["addition_counterexamples"]]))
+    print("Toy SMT:", results["toy_solver"]["status"])
+    if results["toy_solver"]["status"] == "SAT_WITNESS_VALIDATED":
+        print("Verified toy output Hamming weight:", results["toy_solver"]["output_hw"])
+    print("Full Asterion-256 differential-security margin: UNKNOWN")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--quick", action="store_true")
+    args = parser.parse_args()
+    print_report(run_smt_differential_suite(args.quick))

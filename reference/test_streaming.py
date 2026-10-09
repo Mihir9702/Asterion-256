@@ -2,7 +2,7 @@
 
 Tests:
 1. Streaming vs one-shot equivalence across variable lengths and split sizes.
-2. Hashlib-style API: update(), digest(), hexdigest(), copy(), reset(), destroy().
+2. Stateful API (not full hashlib-compatible semantics), including reset/destroy.
 3. Known Answer Vector streaming verification.
 4. Error conditions and input validation.
 """
@@ -106,6 +106,33 @@ class TestAsterion256Streaming(unittest.TestCase):
             hasher.update(None)  # type: ignore
         with self.assertRaises(TypeError):
             Asterion256(domain=123)  # type: ignore
+
+
+    def test_destroy_is_irreversible(self) -> None:
+        h = Asterion256().update("secret")
+        h.destroy()
+        with self.assertRaisesRegex(RuntimeError, "cannot reset a destroyed"):
+            h.reset()
+
+    def test_invalid_format_does_not_finalize(self) -> None:
+        h = Asterion256().update("hello")
+        with self.assertRaises(ValueError):
+            h.digest("invalid")
+        self.assertEqual(h.hexdigest(), asterion256("hello"))
+
+    def test_lone_and_split_surrogates(self) -> None:
+        high, low = chr(0xD83D), chr(0xDE00)
+        one_shot = Asterion256().update("😀").hexdigest()
+        split = Asterion256().update(high).update(low).hexdigest()
+        self.assertEqual(one_shot, split)
+        self.assertEqual(Asterion256().update(high).hexdigest(),
+                         asterion256(chr(0xFFFD)))
+
+    def test_reset_preserves_algorithm_state(self) -> None:
+        expected = Asterion256().update("first").digest()
+        revived = Asterion256().update("garbage")
+        revived.reset()
+        self.assertEqual(revived.update("first").digest(), expected)
 
 
 if __name__ == "__main__":

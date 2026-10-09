@@ -26,17 +26,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Node dependencies
-        run: npm ci
+      - name: Install TypeScript and pinned research solver
+        run: |
+          npm ci
+          python -m pip install "z3-solver==5.1.0.0"
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Test deterministic behavior, implementations, models and smoke checks
+        run: npm run verify
 
-      - name: Run TypeScript implementation tests
-        run: npm test
-
-      - name: Verify Python reference vectors
-        run: python reference/verify_vectors.py
-
-      - name: Run cryptanalysis & statistical smoke checks
-        run: npm run test:analysis
+      - name: Test reproducible reduced-round research runner
+        run: npm run test:research
